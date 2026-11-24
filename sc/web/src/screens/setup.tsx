@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from "react"
 
 import { api, type Account, type AccountInput, type Inbox } from "@/api"
+import { GoogleSignIn } from "@/components/google-sign-in"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -52,7 +53,7 @@ export function SetupScreen({
   }
 
   return (
-    <div>
+    <div className="max-w-xl">
       <h1 className="text-2xl font-semibold tracking-tight">
         {first ? "Add your Gmail account" : "Add another Gmail account"}
       </h1>
@@ -62,7 +63,20 @@ export function SetupScreen({
           : "Each account signs in on its own."}
       </p>
 
-      <form onSubmit={save} className="mt-8 space-y-5">
+      <section aria-labelledby="google-heading" className="mt-8">
+        <h2 id="google-heading" className="text-sm font-medium">
+          Work or school account
+        </h2>
+        <p className="mt-1 mb-4 text-sm text-muted-foreground">
+          Google Workspace accounts sign in with Google itself. You choose the account and allow cockatoo in your
+          browser.
+        </p>
+        <GoogleSignIn onSignedIn={onSaved} />
+      </section>
+
+      <h2 className="mt-10 border-t pt-8 text-sm font-medium">Personal Gmail, with an app password</h2>
+
+      <form onSubmit={save} className="mt-4 space-y-5">
         <div className="space-y-2">
           <Label htmlFor="email">Gmail address</Label>
           <Input

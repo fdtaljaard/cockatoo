@@ -31,6 +31,12 @@ func startServer(t *testing.T, username, password string) Server {
 	if _, err := user.Append("INBOX", literal{strings.NewReader(msg)}, &imap.AppendOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	return serve(t, user)
+}
+
+// serve runs an in-memory IMAP server for one user and returns its address.
+func serve(t *testing.T, user *imapmemserver.User) Server {
+	t.Helper()
 	mem := imapmemserver.New()
 	mem.AddUser(user)
 
@@ -38,7 +44,7 @@ func startServer(t *testing.T, username, password string) Server {
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			return mem.NewSession(), nil, nil
 		},
-		Caps:         imap.CapSet{imap.CapIMAP4rev1: {}},
+		Caps:         imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapMove: {}},
 		InsecureAuth: true, // plain TCP on loopback, for the test only
 	})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -55,7 +61,7 @@ func TestCheckInbox(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	inbox, err := CheckInbox(ctx, srv, "me@example.com", "app-password")
+	inbox, err := CheckInbox(ctx, srv, PasswordLogin("me@example.com", "app-password"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +75,7 @@ func TestCheckInboxWrongPassword(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := CheckInbox(ctx, srv, "me@example.com", "not-it")
+	_, err := CheckInbox(ctx, srv, PasswordLogin("me@example.com", "not-it"))
 	var refused *LoginError
 	if !errors.As(err, &refused) {
 		t.Fatalf("error %v, want a LoginError", err)
@@ -86,7 +92,7 @@ func TestCheckInboxUnreachable(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = CheckInbox(ctx, Server{Addr: addr}, "me@example.com", "x")
+	_, err = CheckInbox(ctx, Server{Addr: addr}, PasswordLogin("me@example.com", "x"))
 	if err == nil || !strings.Contains(err.Error(), "could not reach") {
 		t.Fatalf("error %v, want could not reach", err)
 	}

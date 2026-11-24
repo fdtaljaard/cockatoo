@@ -67,6 +67,107 @@ var migrations = []string{
 	   key_hint   VARCHAR,
 	   updated_at TIMESTAMP NOT NULL
 	 );`,
+	// 4: inbox message headers, copied from the mail server. Unlike account and ai_provider this
+	// table is a cache: the server is the source, so a later migration may drop and refill it.
+	// Times are UTC. refreshed_at marks the rows the last refresh of an account saw.
+	`CREATE TABLE IF NOT EXISTS message (
+	   account_id   INTEGER NOT NULL,
+	   uid_validity BIGINT NOT NULL,
+	   uid          BIGINT NOT NULL,
+	   message_id   VARCHAR,
+	   from_name    VARCHAR,
+	   from_addr    VARCHAR,
+	   subject      VARCHAR,
+	   received_at  TIMESTAMP NOT NULL,
+	   seen         BOOLEAN NOT NULL,
+	   refreshed_at TIMESTAMP NOT NULL,
+	   PRIMARY KEY (account_id, uid_validity, uid)
+	 );`,
+	// 5: the message table now holds the whole inbox, not 24 hours of it (refreshed_at is when a
+	// row was last written). inbox_sync says how far each account's copy goes: complete is true
+	// only once every message the server listed has been read. Also a cache.
+	`CREATE TABLE IF NOT EXISTS inbox_sync (
+	   account_id   INTEGER PRIMARY KEY,
+	   uid_validity BIGINT NOT NULL,
+	   server_total INTEGER NOT NULL,
+	   complete     BOOLEAN NOT NULL,
+	   started_at   TIMESTAMP NOT NULL,
+	   synced_at    TIMESTAMP
+	 );`,
+	// 6: the cache gains each message's unsubscribe address (List-Unsubscribe). Every message has
+	// to be read again for it, so the two cache tables are dropped and made anew; the next sync
+	// refills them. And the audit: every action cockatoo takes on a mailbox, insert-only, kept
+	// when an account is removed. action is written before anything changes (what, why, which
+	// messages), action_result after (what happened).
+	`DROP TABLE IF EXISTS message;
+	 DROP TABLE IF EXISTS inbox_sync;
+	 CREATE TABLE message (
+	   account_id      INTEGER NOT NULL,
+	   uid_validity    BIGINT NOT NULL,
+	   uid             BIGINT NOT NULL,
+	   message_id      VARCHAR,
+	   from_name       VARCHAR,
+	   from_addr       VARCHAR,
+	   subject         VARCHAR,
+	   received_at     TIMESTAMP NOT NULL,
+	   seen            BOOLEAN NOT NULL,
+	   unsub_url       VARCHAR,
+	   unsub_mailto    VARCHAR,
+	   unsub_one_click BOOLEAN NOT NULL,
+	   refreshed_at    TIMESTAMP NOT NULL,
+	   PRIMARY KEY (account_id, uid_validity, uid)
+	 );
+	 CREATE TABLE inbox_sync (
+	   account_id   INTEGER PRIMARY KEY,
+	   uid_validity BIGINT NOT NULL,
+	   server_total INTEGER NOT NULL,
+	   complete     BOOLEAN NOT NULL,
+	   started_at   TIMESTAMP NOT NULL,
+	   synced_at    TIMESTAMP
+	 );
+	 CREATE SEQUENCE IF NOT EXISTS seq_action START 1;
+	 CREATE TABLE IF NOT EXISTS action (
+	   id            INTEGER PRIMARY KEY DEFAULT nextval('seq_action'),
+	   started_at    TIMESTAMP NOT NULL,
+	   account_id    INTEGER NOT NULL,
+	   account_email VARCHAR NOT NULL,
+	   kind          VARCHAR NOT NULL,
+	   criteria      VARCHAR NOT NULL,
+	   description   VARCHAR NOT NULL,
+	   source        VARCHAR NOT NULL,
+	   folder        VARCHAR,
+	   target        VARCHAR,
+	   matched       INTEGER NOT NULL
+	 );
+	 CREATE TABLE IF NOT EXISTS action_item (
+	   action_id    INTEGER NOT NULL,
+	   uid_validity BIGINT NOT NULL,
+	   uid          BIGINT NOT NULL,
+	   message_id   VARCHAR,
+	   from_name    VARCHAR,
+	   from_addr    VARCHAR,
+	   subject      VARCHAR,
+	   received_at  TIMESTAMP NOT NULL
+	 );
+	 CREATE TABLE IF NOT EXISTS action_result (
+	   action_id   INTEGER NOT NULL,
+	   finished_at TIMESTAMP NOT NULL,
+	   outcome     VARCHAR NOT NULL,
+	   done        INTEGER NOT NULL,
+	   not_done    VARCHAR NOT NULL,
+	   error       VARCHAR
+	 );`,
+	// 7: Google's own sign-in. account.auth says how an account signs in: 'password' (a Google
+	// app password, every account before this) or 'google' (secret is then the refresh token,
+	// encrypted the same way). oauth_client holds the Google Cloud OAuth client cockatoo signs in
+	// with, its secret encrypted.
+	`ALTER TABLE account ADD COLUMN IF NOT EXISTS auth VARCHAR DEFAULT 'password';
+	 CREATE TABLE IF NOT EXISTS oauth_client (
+	   provider   VARCHAR PRIMARY KEY,
+	   client_id  VARCHAR NOT NULL,
+	   secret     BLOB NOT NULL,
+	   updated_at TIMESTAMP NOT NULL
+	 );`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

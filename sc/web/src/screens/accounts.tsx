@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { api, type Account, type Inbox } from "@/api"
+import { SignInButton } from "@/components/google-sign-in"
 import { Button } from "@/components/ui/button"
 import { inboxLine } from "@/lib/format"
 
@@ -15,7 +16,7 @@ export function AccountsScreen({
   onRemoved: () => void
 }) {
   return (
-    <div>
+    <div className="max-w-xl">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
         <Button size="lg" variant="outline" onClick={onAdd}>
@@ -73,6 +74,9 @@ function AccountRow({ account, onRemoved }: { account: Account; onRemoved: () =>
           {account.name !== account.email && (
             <p className="truncate text-sm text-muted-foreground">{account.email}</p>
           )}
+          <p className="text-xs text-muted-foreground">
+            {account.auth === "google" ? "Signed in with Google" : "App password"}
+          </p>
         </div>
         {!confirming && (
           <Button variant="ghost" onClick={() => setConfirming(true)}>
@@ -94,9 +98,14 @@ function AccountRow({ account, onRemoved }: { account: Account; onRemoved: () =>
             <p role="alert" className="text-destructive">
               Not connected. {connection.message}
             </p>
-            <Button size="sm" variant="outline" onClick={retry}>
-              Try again
-            </Button>
+            <div className="flex flex-wrap items-start gap-2">
+              {account.auth === "google" && (
+                <SignInButton hint={account.email} label="Sign in with Google again" onSignedIn={retry} />
+              )}
+              <Button size="sm" variant="outline" onClick={retry}>
+                Try again
+              </Button>
+            </div>
           </div>
         )}
       </div>
@@ -104,7 +113,8 @@ function AccountRow({ account, onRemoved }: { account: Account; onRemoved: () =>
       {confirming && (
         <div className="mt-4 rounded-lg border px-4 py-3 text-sm">
           <p>
-            Remove {account.email} from cockatoo? Its saved password is deleted. Your mail in Gmail is not touched.
+            Remove {account.email} from cockatoo? Its saved {account.auth === "google" ? "Google sign-in" : "password"} is
+            deleted. Your mail in Gmail is not touched.
           </p>
           {removeError && (
             <p role="alert" className="mt-2 text-destructive">

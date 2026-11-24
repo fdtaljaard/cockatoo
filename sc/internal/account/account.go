@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/mail"
 	"strings"
+	"sync"
 	"time"
 
 	imap "cockatoo/internal/mail"
@@ -32,9 +33,18 @@ func (e *InvalidError) Error() string { return e.Msg }
 type Service struct {
 	st     *store.Store
 	server imap.Server
-	check  func(ctx context.Context, srv imap.Server, username, password string) (imap.Inbox, error)
+	check  func(ctx context.Context, srv imap.Server, login imap.Login) (imap.Inbox, error)
+	dial   func(ctx context.Context, srv imap.Server, login imap.Login) (mailbox, error)
 	seal   func([]byte) ([]byte, error)
 	open   func([]byte) ([]byte, error)
+
+	openMover func(ctx context.Context, srv imap.Server, login imap.Login) (mover, error)
+
+	google  googleState
+	sync    syncer
+	acting  bool           // an action is running (guarded by sync.mu)
+	stopped bool           // StopSync was called: nothing new starts (guarded by sync.mu)
+	actions sync.WaitGroup // running actions, for StopSync to wait on
 }
 
 // New returns the service for Gmail accounts.
@@ -42,7 +52,10 @@ func New(st *store.Store) *Service { return NewFor(st, imap.Gmail) }
 
 // NewFor returns the service for another IMAP server. The tests use it to stand in for Gmail.
 func NewFor(st *store.Store, server imap.Server) *Service {
-	return &Service{st: st, server: server, check: imap.CheckInbox, seal: secret.Seal, open: secret.Open}
+	return &Service{
+		st: st, server: server, check: imap.CheckInbox, dial: dialSession, openMover: openMover, seal: secret.Seal, open: secret.Open,
+		google: googleState{endpoint: googleEndpoint, open: openInBrowser, pending: map[string]*signIn{}},
+	}
 }
 
 // timeout bounds one sign-in and inbox count.
@@ -85,11 +98,17 @@ func (s *Service) Inbox(ctx context.Context, id int64) (imap.Inbox, error) {
 	if err != nil {
 		return imap.Inbox{}, err
 	}
-	password, err := s.open(sealed)
+	login, err := s.loginFor(ctx, a, sealed)
 	if err != nil {
-		return imap.Inbox{}, fmt.Errorf("the saved password for %s could not be read; remove the account and add it again: %w", a.Email, err)
+		return imap.Inbox{}, err
 	}
-	return s.connect(ctx, a.Email, string(password))
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	inbox, err := s.check(ctx, s.server, login)
+	if err != nil {
+		return imap.Inbox{}, explainMail(err)
+	}
+	return inbox, nil
 }
 
 // Remove deletes a saved account and its encrypted password. The mailbox itself is not touched.
@@ -100,13 +119,25 @@ func (s *Service) Remove(ctx context.Context, id int64) error {
 func (s *Service) connect(ctx context.Context, email, password string) (imap.Inbox, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	inbox, err := s.check(ctx, s.server, email, password)
+	inbox, err := s.check(ctx, s.server, imap.PasswordLogin(email, password))
+	if err != nil {
+		return imap.Inbox{}, explainMail(err)
+	}
+	return inbox, nil
+}
+
+// explainMail puts a refused sign-in into words for the user; other errors pass through.
+func explainMail(err error) error {
+	var token *imap.TokenError
+	if errors.As(err, &token) {
+		return fmt.Errorf("Google sign-in for this account no longer works. Sign in with Google again. Google said: %s", token.Text)
+	}
 	var refused *imap.LoginError
 	if errors.As(err, &refused) {
-		return imap.Inbox{}, fmt.Errorf("Gmail did not accept this address and app password. Check the address, and that this is "+
+		return fmt.Errorf("Gmail did not accept this address and app password. Check the address, and that this is "+
 			"an app password and not your Google password. Gmail said: %s", refused.Text)
 	}
-	return inbox, err
+	return err
 }
 
 // clean trims the form and says what is missing. Google shows an app password in four groups

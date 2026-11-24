@@ -1,7 +1,8 @@
 # cockatoo: high-level scope
 
-Date: 2026-11-24. Status: first draft, written from the brief before any screenshots were shared. Built so far:
-the scaffold and adding a Gmail account (`readme.md`).
+Date: 2026-11-24. Status: first draft. Built so far: the scaffold, Gmail accounts, the AI connection, the
+last-24-hours inbox, and cleanup steps 1 and 2: the whole-inbox overview, and Trash, Spam and the unsubscribe
+link on its rows, all audited; Google sign-in for work accounts (`readme.md`). The product record for design work is `../PRODUCT.md`.
 
 This document says why cockatoo is being built and what its core parts are. It is not a list of work. We
 read it before a design or build decision and ask: does this still fit?
@@ -19,16 +20,22 @@ An extremely simple email client for Windows: one program, your mail accounts in
 - **Several accounts.** You can add more than one email account. Gmail is first.
 - **AI built in.** The app has its own AI client. You supply your own API key. Anthropic is first.
 - **Its own memory.** DuckDB keeps what the app knows about your mail.
+- **A product for other people.** Built to be used by anyone with a mailbox, not only by us. Wording, setup
+  and sign-in are designed for a stranger installing it.
 
 ## 3. Grounding rules
 
 1. **Simple wins.** When a feature makes a screen harder to read or a task take more steps, the feature
    loses. Fewer things on screen, fewer settings, plain words.
-2. **It runs on your machine.** **(proposed)** There is no cockatoo server. The exe talks to your mail
+2. **Flat, not deep.** Every action is visible where you are looking. See section 8.
+3. **It runs on your machine.** **(proposed)** There is no cockatoo server. The exe talks to your mail
    provider and to the AI provider directly, with your own sign-in and your own key.
-3. **The AI suggests, you decide.** **(proposed)** The AI can read, summarise, sort and draft. It does not
-   send, delete or move mail on its own. Anything that changes your mailbox waits for you.
-4. **One seam per provider.** **(proposed)** Gmail is the first mail provider and Anthropic the first AI
+4. **The AI suggests, you decide.** The AI can read, summarise, sort, ask and propose. It does not send,
+   delete or move mail on its own. Anything that changes your mailbox waits for your click.
+5. **Everything is audited.** Every action cockatoo takes on a mailbox is recorded before it changes
+   anything (what, which messages, by what criteria, who asked) and again after (what happened). The record
+   is insert-only and outlives the account. A page to read it comes later; the record starts now.
+6. **One seam per provider.** **(proposed)** Gmail is the first mail provider and Anthropic the first AI
    provider, each behind a small interface, so a second one is an addition and not a rewrite.
 
 ## 4. The moving parts
@@ -64,8 +71,8 @@ The app runs only while its window is open, so mail syncs while you are using it
 | What cockatoo knows about your mail | `cockatoo.duckdb` beside the exe | Fast to show and search, and it is where AI results are kept so they are not paid for twice. |
 | Mail passwords, the AI API key | `cockatoo.duckdb`, encrypted | Encrypted with the Windows sign-in (DPAPI) before they are stored. They open only for the same Windows user on the same computer, so a copy of the file carries no usable password. |
 
-How much of each message DuckDB holds (headers only, or the full text and attachments) is not decided. See
-section 8.
+Headers (sender, subject, time, read or not) are stored as they are, not encrypted. Whether message bodies
+are stored is not decided. See section 10.
 
 ## 6. Mail accounts: Gmail first
 
@@ -77,9 +84,11 @@ when the sign-in works.
   from Google, which is why it comes first.
 - A personal Gmail and a Google Workspace address use the same server, so the same form serves both.
   A Workspace administrator can switch app passwords off; that case needs Google's own sign-in (OAuth).
-- Google's own sign-in (OAuth with the Gmail API) is the later alternative. It gives threads and labels
-  directly, but needs a Google Cloud project, and Google's verification before anyone outside a test list
-  can use it.
+- Google Workspace accounts no longer take passwords from mail apps (Google, May 2025), so they sign in
+  with Google's own sign-in: OAuth for a desktop app, then IMAP with the token (XOAUTH2). Built
+  2026-11-24. It needs a Google Cloud OAuth client; inside one Workspace the app can be Internal, with no
+  review by Google. Offering it to anyone needs an External app and Google's review of full mail access,
+  which is where a product for other people ends up.
 
 ## 7. AI: Anthropic first
 
@@ -89,26 +98,91 @@ when the sign-in works.
   with Claude Opus 5.5 as the default; there is no model picker yet.
 - When Anthropic's safety checks decline a request, the server retries it on the model Anthropic
   recommends for that case (`fallbacks: "default"`).
-- **(proposed)** Start with single requests (summarise this thread, sort this message, draft this reply).
-  No agent until a feature needs one.
 - Mail text goes to Anthropic only when you use an AI feature, straight from your machine with your key.
 - Each AI request costs money on your key. Results are stored, so the same question about the same message
   is asked once.
 
-What the AI actually does for the user is not decided. See section 8.
+The first thing the AI does is help you clean up your inbox. See section 9.
 
-## 8. Not decided yet
+## 8. The UI: flat, quiet, at a glance
 
-1. **What the AI does.** Summaries, sorting, drafting replies, search in plain words, something else? This
-   shapes the screens more than anything.
-2. **How much mail is stored locally.** Headers and a preview only (small file, needs the network to open a
-   message), or the full text (works offline, searchable, larger file)? And attachments?
-3. **Sending.** The brief says display and manage. Is writing and sending mail in the first version?
-4. **Google's own sign-in.** When do we add OAuth beside the app password? See section 6.
-5. **One inbox or one per account.** With several accounts, is mail shown together or separately?
-6. **The look.** Waiting for the screenshots, which are inspiration and not a design to copy.
+Email clients are deep: you select a message to find its menu, and the menu has sub-menus. Cockatoo is
+flat. The rules every screen is checked against:
 
-## 9. Not in scope for now
+1. **Every action is on the thing it acts on.** A row in the inbox carries its own actions, visible on the
+   row: read, delete, spam (and later unsubscribe). No right-click menu, no "more" button, no sub-menu.
+2. **One glance shows what you can do.** If an action exists for what you are looking at, it is on screen.
+   Nothing is hidden behind a selection, a hover-only state or a settings page.
+3. **Many at once is allowed.** Selecting several rows to act on them together is fine; the same actions
+   then apply to the selection, shown in the same place.
+4. **The AI works in the background.** It prepares, groups and suggests. It shows up as an answer or a
+   proposal beside your mail, not as a separate tool you have to learn.
+5. **Modern, sleek and simple.** Calm, few words, nothing decorative. The visual design itself is not
+   decided yet; `../PRODUCT.md` holds the product record it will be built from (with Impeccable).
+
+## 9. Cleaning up the inbox with AI
+
+The first AI feature. A mailbox with thousands of messages and hundreds unread, spread over years, is the
+common case. Cleaning it up should feel like a short conversation, not a settings page.
+
+**The experience.** You open a cleanup session. The AI has already looked at your inbox and starts the
+conversation: what it sees (how old, who sends the most, what you never open) and what your goal is. It
+asks questions about what it found ("these 14 senders sent 312 unread messages and you have opened none in
+two years: are they important?") and proposes batches. Each proposal is a row with its actions on it:
+delete, spam, keep, and later unsubscribe. You decide; cockatoo does it.
+
+**It remembers.** Every decision is kept with its reason, in your words: "delete: newsletters from
+shop.example.com, I never read them". The next session starts from those decisions: it applies them to the
+mail that arrived since (shown for your OK, not done silently) and only asks about what is new. You never
+answer the same question twice, and the AI still sees everything fresh. The saved decisions are a list you
+can read and change, not a hidden profile.
+
+**How it works, in short.**
+
+- The AI does not read thousands of messages one by one. Cockatoo works out the facts from the headers in
+  DuckDB (per sender: how many, how many unread, how old, ever opened) and gives the AI those summaries and a
+  few sample subjects. That is fast, cheap, and the only mail data that leaves the machine: senders,
+  subjects and counts, to Anthropic, with your key. No message bodies.
+- The AI answers with structured proposals ("these senders, this action"). Cockatoo checks each one
+  against the index, shows it, and runs it only on your click. Subjects and sender names are written by
+  strangers, so nothing the AI says ever triggers an action by itself.
+- "Delete" moves mail to Gmail's Trash, where it can be restored for 30 days. Cockatoo never deletes
+  permanently. "Spam" moves it to Gmail's Spam.
+
+**The steps, each one something to try before the next.**
+
+1. **The whole inbox, at a glance.** Read the headers of every inbox message (not just the last 24 hours)
+   and show the shape of it: how much per year, the biggest senders, what is unread. Read-only, no AI.
+   *Built 2026-11-24: the Clean up screen.*
+2. **Delete and spam, for real.** The row actions and the batch: "everything before 2020", "everything
+   from this sender", previewed with a count and confirmed. This covers "delete what goes back way back"
+   without any AI, and it is the plumbing the AI's proposals will use. With it, finding the senders that say
+   how to unsubscribe, and opening that page (or email) with one click. *Built 2026-11-24.*
+3. **The cleanup conversation.** The AI session over the summaries: it asks, proposes batches, you decide.
+4. **Memory.** Decisions saved with their reasons; the next session applies them to new mail first and asks
+   only about the rest.
+5. **Unsubscribe for you.** Cockatoo sending the unsubscribe itself (the standard one-click request, or
+   the email) instead of opening the sender's page. Last, because it sends something out on your behalf.
+
+**(proposed)** The AI session runs in the backend on your machine: a loop over the Claude API with a few
+tools that read the summaries in DuckDB. The alternative is Anthropic's hosted agents, which run the loop
+for us but keep the session's history on Anthropic's side; with mail data and a product for others,
+running it locally fits rule 3. To decide before step 3.
+
+## 10. Not decided yet
+
+1. **Bodies.** Are message bodies stored locally (works offline, searchable, larger file) or fetched when a
+   message is opened? And attachments?
+2. **Sending.** The brief says display and manage. Is writing and sending mail in the first version?
+3. **Google sign-in for everyone.** Built for one Workspace (an Internal app, the user's own Google Cloud
+   client). For strangers: one cockatoo client, External, through Google's review. See section 6.
+4. **One inbox or one per account.** With several accounts, is mail shown together or separately? Shown
+   together for now, each row labelled by its account.
+5. **Where the cleanup AI runs.** On your machine or Anthropic's hosted agents. See section 9.
+6. **The look.** Built from `../PRODUCT.md` with Impeccable. Screenshots shared are inspiration, not a
+   design to copy.
+
+## 11. Not in scope for now
 
 - Mail providers other than Gmail, and AI providers other than Anthropic. The seams are there; the second
   ones come later.
@@ -116,7 +190,7 @@ What the AI actually does for the user is not decided. See section 8.
 - Calendar, contacts and chat.
 - Mac and Linux. The window and the credential store are Windows-first, as in kakapo.
 
-## 10. Decisions log
+## 12. Decisions log
 
 | Date | Decision |
 |---|---|
@@ -126,3 +200,11 @@ What the AI actually does for the user is not decided. See section 8.
 | 2026-11-24 | Phase one: the app opens on a setup form when there is no account. Personal Gmail first, over IMAP with an app password. |
 | 2026-11-24 | Account details are saved in DuckDB, the password encrypted with Windows DPAPI. This replaces the earlier idea of Windows Credential Manager. |
 | 2026-11-24 | AI: an on/off switch and the user's Anthropic key, encrypted the same way. Official Anthropic Go SDK, Claude Opus 5.5, refusal fallbacks on. |
+| 2026-11-24 | Inbox, first step: the last 24 hours, headers only (sender, subject, arrival time, read or not), read-only over IMAP and kept in DuckDB as a cache. One list for all accounts, each row labelled by account when there are several (provisional; see section 10, question 4). |
+| 2026-11-24 | Cockatoo is a product for other people, not only for us. |
+| 2026-11-24 | The UI is flat: every action visible on the thing it acts on, no menus or sub-menus, multi-select allowed, AI in the background. |
+| 2026-11-24 | Cleanup step 1: cockatoo keeps a copy of every inbox message's headers in DuckDB, filled by a background sync (newest first, in saved batches; removals only after a complete pass). The Inbox list and the Clean up overview both read from it. |
+| 2026-11-24 | Every action on a mailbox is audited, insert-only: a record before (what, which messages, criteria, source) and a result after. A page to read it comes later. |
+| 2026-11-24 | Cleanup step 2: Trash (a sender's mail, or a year's) and Spam (a sender's mail) on the rows, confirmed in the row with the exact count; moves only over IMAP MOVE into the folder Gmail marks `\Trash` or `\Junk`, never a created one. Unsubscribe: senders whose mail carries List-Unsubscribe are shown, and the link opens on the user's click; cockatoo itself fetches nothing. |
+| 2026-11-24 | Google sign-in for work accounts: OAuth desktop flow (loopback, PKCE) in the default browser, refresh token encrypted with DPAPI, IMAP over XOAUTH2 with a fresh access token per connection. The Google Cloud client is the user's own for now, entered in the app. |
+| 2026-11-24 | The first AI feature is inbox cleanup: a conversation that asks and proposes, decisions saved with reasons and reused next time, built in five steps (section 9). Delete means Gmail's Trash, never permanent; the AI never acts on its own. |

@@ -25,6 +25,9 @@ import (
 	"cockatoo/internal/store"
 )
 
+// testAccounts is the account service of the last newApp, for tests that set it up further.
+var testAccounts *account.Service
+
 const (
 	testEmail    = "me@example.com"
 	testPassword = "abcdefghijklmnop"
@@ -32,11 +35,14 @@ const (
 
 // newApp is the whole backend against a temp DuckDB file and an in-memory IMAP server that
 // stands in for Gmail. The encryption is the real one (Windows DPAPI).
-func newApp(t *testing.T) (http.Handler, *store.Store) {
+func newApp(t *testing.T, seed ...func(*imapmemserver.User)) (http.Handler, *store.Store) {
 	t.Helper()
 	user := imapmemserver.NewUser(testEmail, testPassword)
 	if err := user.Create("INBOX", nil); err != nil {
 		t.Fatal(err)
+	}
+	for _, f := range seed {
+		f(user)
 	}
 	mem := imapmemserver.New()
 	mem.AddUser(user)
@@ -44,7 +50,7 @@ func newApp(t *testing.T) (http.Handler, *store.Store) {
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			return mem.NewSession(), nil, nil
 		},
-		Caps:         imap.CapSet{imap.CapIMAP4rev1: {}},
+		Caps:         imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapMove: {}},
 		InsecureAuth: true,
 	})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -61,6 +67,7 @@ func newApp(t *testing.T) (http.Handler, *store.Store) {
 	t.Cleanup(func() { _ = st.Close() })
 
 	accounts := account.NewFor(st, mail.Server{Addr: ln.Addr().String(), TLS: false})
+	testAccounts = accounts
 	ui := fstest.MapFS{"index.html": {Data: []byte("<html></html>")}}
 	return LocalOnly(Handler(st, accounts, ai.NewService(st), ui, "test")), st
 }
@@ -118,7 +125,7 @@ func TestAccountLifecycle(t *testing.T) {
 	if saved.Email != testEmail || saved.Name != "Me" || saved.Provider != "gmail" || saved.ID == 0 {
 		t.Fatalf("saved %+v", saved)
 	}
-	if strings.Contains(body, testPassword) || strings.Contains(strings.ToLower(body), "password") {
+	if strings.Contains(body, testPassword) || strings.Contains(body, `"password":`) {
 		t.Fatalf("the answer carries the password: %s", body)
 	}
 

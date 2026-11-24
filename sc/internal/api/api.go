@@ -22,6 +22,7 @@ import (
 func Handler(st *store.Store, accounts *account.Service, assistant *ai.Service, ui fs.FS, version string) http.Handler {
 	mux := http.NewServeMux()
 	accountRoutes(mux, accounts)
+	googleRoutes(mux, accounts)
 	aiRoutes(mux, assistant)
 
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +110,7 @@ func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/google/signin/") {
 			log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start).Round(time.Millisecond))
 		}
 	})

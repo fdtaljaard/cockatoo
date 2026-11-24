@@ -4,10 +4,12 @@ import { api, useMock, type Account } from "@/api"
 import { Button } from "@/components/ui/button"
 import { AccountsScreen } from "@/screens/accounts"
 import { AIScreen } from "@/screens/ai"
+import { CleanupScreen } from "@/screens/cleanup"
+import { InboxScreen } from "@/screens/inbox"
 import { SetupScreen } from "@/screens/setup"
 
 type Accounts = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; list: Account[] }
-type View = "accounts" | "ai"
+type View = "inbox" | "cleanup" | "accounts" | "ai"
 
 export default function App() {
   // Keep one event stream open for as long as the page is shown. The exe stops a few
@@ -20,7 +22,7 @@ export default function App() {
 
   const [accounts, setAccounts] = useState<Accounts>({ kind: "loading" })
   const [adding, setAdding] = useState(false)
-  const [view, setView] = useState<View>("accounts")
+  const [view, setView] = useState<View>("inbox")
   const [version, setVersion] = useState("")
 
   const load = useCallback(() => {
@@ -36,10 +38,16 @@ export default function App() {
   }, [load])
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-xl flex-col px-6">
-      <header className="flex items-center justify-between gap-4 py-6">
+    <div className="mx-auto flex min-h-svh max-w-5xl flex-col px-6">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-6">
         <span className="text-sm font-semibold tracking-tight">cockatoo</span>
-        <nav aria-label="Sections" className="flex gap-1">
+        <nav aria-label="Sections" className="flex flex-wrap gap-1">
+          <NavButton current={view === "inbox"} onClick={() => setView("inbox")}>
+            Inbox
+          </NavButton>
+          <NavButton current={view === "cleanup"} onClick={() => setView("cleanup")}>
+            Clean up
+          </NavButton>
           <NavButton current={view === "accounts"} onClick={() => setView("accounts")}>
             Mail accounts
           </NavButton>
@@ -52,9 +60,9 @@ export default function App() {
       <main className="flex-1 pb-16 pt-6">
         {view === "ai" && <AIScreen />}
 
-        {view === "accounts" && accounts.kind === "loading" && <p className="text-sm text-muted-foreground">Opening…</p>}
+        {view !== "ai" && accounts.kind === "loading" && <p className="text-sm text-muted-foreground">Opening…</p>}
 
-        {view === "accounts" && accounts.kind === "error" && (
+        {view !== "ai" && accounts.kind === "error" && (
           <div className="space-y-3">
             <p role="alert" className="rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive">
               Cockatoo could not read its accounts: {accounts.message}
@@ -66,7 +74,15 @@ export default function App() {
         )}
 
         {/* No account yet: the app opens on the form. */}
-        {view === "accounts" && accounts.kind === "ready" && accounts.list.length === 0 && <SetupScreen first onSaved={load} />}
+        {view !== "ai" && accounts.kind === "ready" && accounts.list.length === 0 && <SetupScreen first onSaved={load} />}
+
+        {view === "cleanup" && accounts.kind === "ready" && accounts.list.length > 0 && (
+          <CleanupScreen accounts={accounts.list} />
+        )}
+
+        {view === "inbox" && accounts.kind === "ready" && accounts.list.length > 0 && (
+          <InboxScreen accounts={accounts.list} />
+        )}
 
         {view === "accounts" && accounts.kind === "ready" && accounts.list.length > 0 && adding && (
           <SetupScreen

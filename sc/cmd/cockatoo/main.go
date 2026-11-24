@@ -67,9 +67,12 @@ func run(port int, dataDir string, openWindow bool) (err error) {
 	defer st.Close()
 	log.Printf("database %s", dbPath)
 
+	accounts := account.New(st)
+	defer accounts.StopSync() // runs before st.Close
+
 	presence := &api.Presence{}
 	srv := &http.Server{
-		Handler:           api.LocalOnly(api.WithEvents(api.Handler(st, account.New(st), ai.NewService(st), web.Dist(), version), presence)),
+		Handler:           api.LocalOnly(api.WithEvents(api.Handler(st, accounts, ai.NewService(st), web.Dist(), version), presence)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -87,6 +90,7 @@ func run(port int, dataDir string, openWindow bool) (err error) {
 		return fmt.Errorf("port %d is in use by another program: %w (start with -port <other>)", port, err)
 	}
 	log.Printf("listening on %s", url)
+	accounts.SetBaseURL(url) // where Google sends the browser back after signing in
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()

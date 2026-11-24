@@ -46,7 +46,7 @@ export function AIScreen() {
   }
 
   return (
-    <div>
+    <div className="max-w-xl">
       <h1 className="text-2xl font-semibold tracking-tight">AI</h1>
       <p className="mt-2 text-sm text-muted-foreground">
         Cockatoo uses Anthropic's Claude with your own API key. Mail text goes to Anthropic only when you use an AI
