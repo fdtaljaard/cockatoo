@@ -1,0 +1,18 @@
+# the data file
+*.duckdb
+*.duckdb.wal
+
+# run-time files beside the exe
+/cockatoo.log
+/*.zip
+
+# build output
+/cockatoo.exe
+/cockatoo.exe~
+/dist/
+web/dist/
+web/node_modules/
+
+# editor
+.vscode/
+.idea/
