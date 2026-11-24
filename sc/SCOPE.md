@@ -178,15 +178,18 @@ running it locally fits rule 3. To decide before step 3.
 
 ## 10. Not decided yet
 
-1. **Bodies.** Are message bodies stored locally (works offline, searchable, larger file) or fetched when a
-   message is opened? Attachments are not stored: they are written to your own folders when you save them.
-2. **Sending.** The brief says display and manage. Is writing and sending mail in the first version?
+1. **Bodies.** Fetched when a message is opened, for now, and not kept. Stored locally (works offline,
+   searchable, larger file) is still open. Attachments are not stored: they are written to your own folders when you save them.
+2. **Sending.** Replies are in (plain text). New mail, forwarding and attachments on outgoing mail are
+   not decided.
 3. **Google sign-in for everyone.** Built for one Workspace (an Internal app, the user's own Google Cloud
    client). For strangers: one cockatoo client, External, through Google's review. See section 6.
 4. **One inbox or one per account.** With several accounts, is mail shown together or separately? Shown
    together for now, each row labelled by its account.
 5. **Where the cleanup AI runs.** On your machine or Anthropic's hosted agents. See section 9.
-6. **The look.** Built from `../PRODUCT.md` with Impeccable. Screenshots shared are inspiration, not a
+6. **Routines that act alone.** Should a routine ever save without a click? Only with a sender that is
+   checked (DKIM/SPF results from the mail's headers), and probably only per routine, by choice.
+7. **The look.** Built from `../PRODUCT.md` with Impeccable. Screenshots shared are inspiration, not a
    design to copy.
 
 ## 11. Not in scope for now
@@ -218,4 +221,10 @@ running it locally fits rule 3. To decide before step 3.
 | 2026-11-24 | "What needs you now", revised after real use: headers and subjects alone were not enough. Cockatoo now reads recipients, In-Reply-To and list / automated markers, and the Sent folder's headers; it leaves out mail already answered and automated mail from people the user never writes to (never a reply to their own mail or mail from someone they write to); the first 600 characters of each remaining message go to the AI when the user allows it. The text is not stored. |
 | 2026-11-24 | Save attachments: save folders are a name and an existing path. In the Inbox, tick messages and Save attachments; choose a folder, open or make a subfolder (this month and today are one click), save. Files are never overwritten, carry the internet mark, and stay inside the folder. Audited, with each file written. An exception to rule 8.2, as asked: Save attachments shows only once messages are ticked (rule 8.3); while none are, the bar above the list says what ticking does. |
 | 2026-11-24 | Mail you have dealt with shows green on its Inbox row, saying how: attachments saved (with the folder), replied (from the Sent folder) or marked done (a Done button on every row and AI pick, Mark done for several, Not done to take it back). Done is local, never a change in Gmail. It is not a new state: it is read from the audit (the latest mark wins) and the Sent copy. Mail dealt with is left out of "what needs you now". |
+| 2026-11-24 | Delete on every Inbox row, in the selection bar and on each inbox message of a conversation: Gmail's Trash, by IMAP MOVE, verified and audited, waiting for a running sync rather than refusing. |
+| 2026-11-24 | Sending, first step: replies from a conversation, plain text, through smtp.gmail.com with the account's own sign-in (Gmail keeps the copy in Sent), threaded, the answered message quoted. Recipients shown before sending; only the user's Send sends; audited without the text. New mail (not a reply) and attachments are not in yet. |
+| 2026-11-24 | Reading: a message opens as a conversation, like a chat, built from the inbox and Sent copies (Message-ID, In-Reply-To, References; same account; at most 30). Each message is read with a peek (the first 512 KB, attachment names from BODYSTRUCTURE), checked to still be the message cockatoo knows, and cleaned of quotes, signatures, pictures, device lines and disclaimers; "Show all" keeps everything reachable. Text only: mail HTML is never rendered. Nothing is stored and nothing is marked read. Writing replies is the next decision (section 10, question 2). |
+| 2026-11-24 | Mail dealt with (saved, replied, done) leaves the Inbox list by default; "Show N done" brings it back, Undo follows a Done, and search always shows it. |
+| 2026-11-24 | Routines: what the user does every time a certain mail comes in, made from the save summary ("Do this every time?"). Matched on the sender's domain (or address, always for personal mail services) and optional subject text; mail from before the routine is not matched. For now the action is saving attachments, into a fixed folder or a folder for the mail's month or day. Matching mail is pointed out (Waiting for you, the row, the AI's facts, never left out as automated); the user presses Save. Never saved unattended: the sender is what the From header says, which anyone can write. "Reply" and "point out" routines are next. |
 | 2026-11-24 | The first AI feature is inbox cleanup: a conversation that asks and proposes, decisions saved with reasons and reused next time, built in five steps (section 9). Delete means Gmail's Trash, never permanent; the AI never acts on its own. |
+| 2026-11-24 | The look: "Highlighted Printout". Each screen is a paper sheet on a desk; navy ink; one highlighter yellow (the crest) only for what needs you (the AI's picks); the AI's notes in blue pen handwriting; a pen tick on mail you have dealt with. Public Sans, Caveat for the pen. The logo bird is in the header, the first-run screen and the empty inbox, with the tagline. Follows Windows light and dark. |

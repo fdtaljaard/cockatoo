@@ -19,6 +19,8 @@ type mailbox interface {
 	Headers(uids []uint32) ([]imap.Message, error)
 	Texts(uids []uint32, max int) (map[uint32]string, error)
 	Raw(uids []uint32) (raw map[uint32][]byte, tooBig map[uint32]int64, err error)
+	Bodies(uids []uint32) (map[uint32]imap.Body, error)
+	Validity() uint32
 	Folder() string
 	Close()
 }

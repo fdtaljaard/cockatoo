@@ -25,8 +25,8 @@ func TestOpenMigratesAndReopens(t *testing.T) {
 		if st.DuckDBVersion == "" {
 			t.Error("no DuckDB version")
 		}
-		if len(st.Tables) != 16 { // the fourteen of migration 9, plus action_file and save_folder
-			t.Errorf("tables %v, want the sixteen tables of migration 10", st.Tables)
+		if len(st.Tables) != 17 { // the sixteen of migration 10, plus routine
+			t.Errorf("tables %v, want the seventeen tables of migration 11", st.Tables)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatal(err)

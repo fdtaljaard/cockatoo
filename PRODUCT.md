@@ -41,8 +41,11 @@ twice. The user always decides; the AI never acts on its own.
 
 ## Capabilities and Constraints
 
-- Built: add Gmail accounts (password encrypted with Windows DPAPI), the AI connection with the user's key,
-  and an inbox of the last 24 hours across accounts (headers only, read-only).
+- Built: Gmail accounts (app password or Google sign-in), the AI connection with the user's key, the
+  inbox of the last 24 hours across accounts with search, the AI's "what needs your attention" picks,
+  conversations read as a chat with signatures and quotes removed, plain-text replies, delete (to Trash),
+  done marks, saving attachments to the user's folders, routines for recurring mail, and cleanup steps
+  (whole-inbox overview, Trash, Spam, unsubscribe). Every mailbox action is audited.
 - Planned first AI feature: inbox cleanup as a conversation (see `sc/SCOPE.md`, section 9).
 - "Delete" means the provider's Trash, never permanent deletion. Anything that changes the mailbox runs
   only on the user's click.
@@ -52,12 +55,17 @@ twice. The user always decides; the AI never acts on its own.
 ## Brand Commitments
 
 - Name: cockatoo (lowercase in the UI).
-- The look must be modern, sleek and simple. No visual world is chosen yet.
+- The look must be modern, sleek and simple, a little fun but productive (2026-11-24). It must not turn
+  cartoony or childish, busy or animated, or look like Gmail or Outlook.
+- The logo and its tagline are in: a white sulphur-crested cockatoo with a yellow crest holding a blue
+  envelope, the navy wordmark, and "Only the emails that matter." (`sc/Cockatoo_Logo.webp`).
+- Light and dark: cockatoo is open all day and follows the Windows light or dark setting.
 - Voice: plain words, short sentences, no jargon.
 
 ## Evidence on Hand
 
-- A logo file: `sc/Cockatoo_Logo.webp` (not yet used in the app).
+- The logo file: `sc/Cockatoo_Logo.webp` (1536x1024, transparent; not yet used in the app, and not
+  committed to the repository yet).
 - No users, testimonials, metrics or screenshots of real use exist yet; none may be invented.
 
 ## Product Principles

@@ -272,3 +272,29 @@ func TestDoneMailLeftOut(t *testing.T) {
 		t.Fatalf("second run %+v %v\n%s", r, err, fake.got.Prompt)
 	}
 }
+
+// Mail a routine is for goes to the AI even when it looks automated, with the routine as a fact.
+func TestRoutineMailKept(t *testing.T) {
+	s, st, fake, id := setup(t, true)
+	ctx := context.Background()
+	f, err := st.AddSaveFolder(ctx, "Expenses", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := st.AddRoutine(ctx, store.Routine{From: "acme.example", Action: store.RoutineSave, FolderID: f.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoice := store.Message{AccountID: id, UIDValidity: 7, UID: 30, FromAddr: "noreply@acme.example", Subject: "Your invoice",
+		To: []string{"me@example.com"}, ReceivedAt: r.CreatedAt.Add(time.Second), Unsubscribe: store.Unsubscribe{URL: "https://acme.example/u"}}
+	if err := st.AddMessages(ctx, id, []store.Message{invoice}); err != nil {
+		t.Fatal(err)
+	}
+	fake.answer = `{"summary":"Your invoice.","picks":[]}`
+	if _, err := s.Run(ctx, "all", false); err != nil {
+		t.Fatal(err)
+	}
+	if p := fake.got.Prompt; !strings.Contains(p, "Your invoice") || !strings.Contains(p, "their routine for this mail: save its attachments to Expenses") {
+		t.Fatalf("the invoice, automated, was left out or sent without its routine:\n%s", p)
+	}
+}

@@ -171,6 +171,21 @@ func (f *fakeBox) Raw(uids []uint32) (map[uint32][]byte, map[uint32]int64, error
 
 func (f *fakeBox) Close() {}
 
+func (f *fakeBox) Validity() uint32 { return f.inbox.UIDValidity }
+
+func (f *fakeBox) Bodies(uids []uint32) (map[uint32]imapc.Body, error) {
+	if f.offline {
+		return nil, errors.New("could not reach imap.gmail.com:993")
+	}
+	out := map[uint32]imapc.Body{}
+	for _, u := range uids {
+		if b, ok := f.raw[u]; ok {
+			out[u] = imapc.Body{Raw: b, Size: int64(len(b)), Attachments: []imapc.AttachmentInfo{}}
+		}
+	}
+	return out, nil
+}
+
 func newFake(n int) *fakeBox {
 	f := &fakeBox{inbox: imapc.InboxState{UIDValidity: 3}, headers: map[uint32]imapc.Message{}, broken: map[uint32]bool{}}
 	for i := 1; i <= n; i++ {

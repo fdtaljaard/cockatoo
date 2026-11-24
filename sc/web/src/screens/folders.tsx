@@ -27,7 +27,7 @@ export function FoldersScreen() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Folders</h1>
+      <h1 className="text-[2rem] leading-tight font-bold tracking-[-0.025em]">Folders</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Where attachments are saved. Choose messages in your Inbox, then Save attachments.
       </p>
@@ -39,7 +39,7 @@ export function FoldersScreen() {
       )}
 
       {folders && folders.length > 0 && (
-        <ul className="mt-6 divide-y rounded-lg border">
+        <ul className="mt-6 divide-y border-y">
           {folders.map((f) => (
             <li key={f.id} className="px-4 py-3">
               <div className="flex items-start justify-between gap-4">
@@ -78,7 +78,7 @@ export function FoldersScreen() {
       )}
 
       <section className="mt-8 border-t pt-6" aria-labelledby="add-folder">
-        <h2 id="add-folder" className="mb-3 text-sm font-medium">
+        <h2 id="add-folder" className="section-head mb-3">
           Add a folder
         </h2>
         <SaveFolderForm onAdded={load} />

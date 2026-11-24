@@ -8,12 +8,13 @@ import (
 
 // Signals are what cockatoo knows, without the AI, about whether a message needs the user.
 type Signals struct {
-	ToYou        bool `json:"toYou"`        // the user is in To
-	CCYou        bool `json:"ccYou"`        // the user is in Cc (and not in To)
-	RepliesToYou bool `json:"repliesToYou"` // it answers a message the user sent
-	Wrote        int  `json:"wrote"`        // messages the user has sent to this sender
-	Automated    bool `json:"automated"`    // list, bulk or machine-sent mail
-	Answered     bool `json:"-"`            // the user already replied to it
+	ToYou        bool   `json:"toYou"`             // the user is in To
+	CCYou        bool   `json:"ccYou"`             // the user is in Cc (and not in To)
+	RepliesToYou bool   `json:"repliesToYou"`      // it answers a message the user sent
+	Wrote        int    `json:"wrote"`             // messages the user has sent to this sender
+	Automated    bool   `json:"automated"`         // list, bulk or machine-sent mail
+	Answered     bool   `json:"-"`                 // the user already replied to it
+	Routine      string `json:"routine,omitempty"` // what one of the user's routines says to do with it
 }
 
 // classify works out a message's signals from its headers and the facts of the Sent folder.

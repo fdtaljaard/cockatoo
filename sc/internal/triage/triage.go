@@ -230,6 +230,12 @@ func (s *Service) Run(ctx context.Context, scope string, withText bool) (Result,
 	if err != nil {
 		return Result{}, err
 	}
+	var routine func(store.Message) *store.RoutineMatch
+	if s.accounts != nil {
+		if routine, err = s.accounts.RoutineMatcher(ctx); err != nil {
+			return Result{}, err
+		}
+	}
 	var kept []candidate
 	for _, c := range unread {
 		// Mail the user has already dealt with (replied, saved, marked done) does not need them.
@@ -238,6 +244,14 @@ func (s *Service) Run(ctx context.Context, scope string, withText bool) (Result,
 			continue
 		}
 		sig := classify(c, emails[c.AccountID], facts[c.AccountID])
+		// Mail a routine is for needs the user, however automated it looks: an invoice is.
+		if routine != nil {
+			if r := routine(c.Message); r != nil {
+				sig.Routine = r.Describe()
+				kept = append(kept, candidate{Candidate: c, signals: sig})
+				continue
+			}
+		}
 		if leave, why := leaveOut(sig); leave {
 			if why == "answered" {
 				res.LeftAnswered++
@@ -355,6 +369,8 @@ Strong signs that it needs them: sent to them directly, from someone they write 
 - "now": someone is waiting on them (for a day or more), or the deadline is today or tomorrow.
 - "today": it needs them, but it can wait a few hours.
 
+Some mail matches a routine the user set up, a thing they do every time such mail comes in, such as saving the attachment of a monthly invoice to a folder. That mail needs them: pick it, usually "today" unless something in it is due sooner, and let the reason say what to do, for example "Your Acme invoice is in: save its attachment to Expenses."
+
 Pick only what needs them: at most 10, and fewer is better. An empty list is the right answer when nothing does.
 For each pick, the reason says what they have to do and for whom, in one plain sentence of at most 20 words, for example "Ann asks you to approve the budget before Friday." Do not repeat the subject.
 In the summary, say in one or two plain sentences what needs them, or that nothing does.
@@ -443,6 +459,9 @@ func buildPrompt(now time.Time, cs []candidate, leftOut int, accounts map[int64]
 		fmt.Fprintf(&b, " | they read %d of this sender's %d messages", c.SenderRead, c.SenderMessages)
 		if c.signals.Automated {
 			b.WriteString(" | list or automated mail")
+		}
+		if c.signals.Routine != "" {
+			fmt.Fprintf(&b, " | their routine for this mail: %s", clean(c.signals.Routine, 200))
 		}
 		subject := clean(c.Subject, 200)
 		if subject == "" {

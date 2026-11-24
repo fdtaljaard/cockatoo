@@ -3,9 +3,11 @@ import { ExternalLink } from "lucide-react"
 
 import { api, type Account, type GoogleSettings, type SignInStart } from "@/api"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { Working } from "@/components/working"
 
 // Google's own sign-in, for work and school accounts (Google Workspace) that do not take an app
 // password. The first time, it asks for the Google Cloud client cockatoo signs in with; after
@@ -26,7 +28,7 @@ export function GoogleSignIn({ onSignedIn }: { onSignedIn: (account: Account) =>
       </p>
     )
   }
-  if (!settings) return <p className="text-sm text-muted-foreground">Opening…</p>
+  if (!settings) return <Working>Opening…</Working>
 
   if (!settings.configured || editing) {
     return (
@@ -216,6 +218,7 @@ export function SignInButton({
   return (
     <div className="space-y-2">
       <Button size="lg" onClick={begin} disabled={flow.kind === "starting"}>
+        {flow.kind === "starting" && <Spinner />}
         {flow.kind === "starting" ? "Opening Google…" : label}
       </Button>
       {flow.kind === "failed" && (

@@ -107,8 +107,53 @@ when either screen opens (and on **Refresh**) and runs in the background:
   subjects are stored as they are, not encrypted. Removing an account removes its copy.
 - **Odd messages.** A subject in an unknown charset is kept as it was sent. A message the server cannot
   give is skipped and counted, and the sync carries on.
+- **Search.** The box above the list searches cockatoo's copy of the whole inbox, not only the last
+  24 hours: every word must be in the sender's name or address or in the subject (any case). The
+  newest 200 are shown. Message text is not searched, since only headers are kept. The account buttons
+  apply; Escape or the cross clears it.
 - **Several accounts.** One Inbox list, each row naming its account; Clean up shows one account at a
   time, chosen with the buttons above it.
+
+## Reading mail: the conversation
+
+Click a message (in the list, in search results, under Waiting for you or among the AI's picks) to
+open it as a conversation, like a chat: what each person wrote, oldest first, your own replies on
+the right. **Inbox** (or Escape) goes back to the list where you were.
+
+- **Which messages.** The ones linked to it by Message-ID and In-Reply-To (and the References it
+  names), in your inbox and your Sent folder, in the same account. Mail you archived in Gmail is not
+  in either, so it is not shown; **Open in Gmail** shows the whole thread there. At most 30, the
+  newest.
+- **Uncluttered.** Quoted earlier messages, signatures, "Sent from my iPhone" lines, legal
+  disclaimers and the contact details under a sign-off are left out, and pictures are never shown.
+  Quote and signature blocks are found by the marks Gmail, Outlook, Apple Mail, Thunderbird, Yahoo
+  and Proton put on them; text rules cover plain mail. Answers written between quoted lines, and
+  forwards, are kept as they are. **Show all** on any message shows everything it said.
+- **Text only.** Mail HTML is turned into text and never shown as HTML, so nothing loads from the
+  internet (no tracking pixels). Web addresses in the text are links; other links show as their text.
+- **Read with a peek.** Opening a message does not mark it as read, in Gmail or in cockatoo, and
+  nothing read is kept. The first 512 KB of each message is read; attachments are named from the
+  server's description of the message, not downloaded.
+- **Checked.** Before a message is shown, cockatoo checks it is still the message it knows by that
+  number; if the mailbox changed, it says so instead.
+- **Actions.** Each inbox message in it has **Save attachments** (opened at its routine's folder when
+  it has one), **Done** and **Delete**, as on its row.
+
+### Replying
+
+The box at the foot of a conversation replies to the newest message from someone else. It shows who
+the reply goes to before you send: the sender (or the address they ask replies to go to), and with
+**Reply all** everyone else it went to, never yourself.
+
+- **Send** (or Ctrl+Enter) is the only thing that sends. Nothing is ever sent by the AI.
+- Plain text, through Gmail's own server (`smtp.gmail.com`, with the same app password or Google
+  sign-in as reading), so it comes from your address and Gmail keeps it in Sent. It is in the same
+  thread (In-Reply-To and References), with the message answered quoted below your text.
+- It shows in the conversation at once; from the Sent folder after the next check.
+- Before sending, cockatoo reads the message answered again and checks it is still the one you saw;
+  if the mailbox changed, nothing is sent.
+- **Audited.** Each reply is recorded (`reply`): who to, about what, and whether Gmail took it. The
+  text is not kept by cockatoo; Gmail's Sent folder has it.
 
 ## What needs you now (AI)
 
@@ -149,6 +194,14 @@ Anthropic with your key and not kept by cockatoo; the record keeps only that tex
   end of that check.
 - **What it cannot know.** Whether you replied from another app before cockatoo read your Sent folder,
   and anything in a message beyond its first lines.
+
+## Delete
+
+Every row in the Inbox (and every inbox message in a conversation) has a **Delete** button, and
+**Delete** in the bar deletes the ticked messages. Delete moves to Gmail's Trash, which Gmail keeps
+for 30 days; it is never permanent. It moves only those messages, by IMAP MOVE, checks with the server
+what actually left the inbox, and is audited like the other moves (`trash`, criteria
+`{"kind":"messages"}`). If cockatoo is in the middle of checking the mailbox, the delete waits for it.
 
 ## Clean up: Trash, Spam and Unsubscribe
 
@@ -199,6 +252,30 @@ attachments**:
   skipped and said so. A message that has left the inbox since the last sync is skipped.
 - **Audited.** Each save is recorded like the other actions (below), with every file written.
 
+## Routines: mail you deal with the same way every time
+
+A routine is something you do every time a certain mail comes in. For now that is saving its
+attachments: "every time mail comes from acme.com with *invoice* in the subject, save its attachments
+to Expenses, in a folder for the month".
+
+- **Making one.** After a save, the summary asks **Do this every time?** for each sender whose files
+  were saved. Choose the whole domain (`acme.com`, the default) or the one address
+  (`billing@acme.com`; the only choice for gmail.com, outlook.com and the like), and if you like, a word
+  the subject always has (left empty, it matches any subject). **Remember** saves it.
+- **The month or day.** If you saved into a folder named like a month (`2026-11`) or a day
+  (`2026-11-24`), the routine saves each mail into the folder for *that mail's* month or day (the date
+  it arrived, in this computer's time zone), next to it, and makes the folder when it is not there.
+  Saved anywhere else, it saves to that same folder every time.
+- **What it does.** Mail a routine is for, arriving after the routine was made, shows in **Waiting for
+  you** at the top of the Inbox (the last 60 days, read or not) and on its row in the list, with
+  **Save**: the save dialog opens at the right folder, and you press **Save to ...**. Once saved (or
+  marked done) it leaves the list. **What needs you now** always includes it, even though invoices look
+  like automated mail, and tells the AI what the routine is, so it can say "save its attachment".
+- **Never on its own.** A routine matches on the sender's address as the mail states it, which anyone
+  can write; so cockatoo points the mail out and you press Save. It does not save by itself.
+- **Routines** lists them, and removes one. A routine whose save folder was removed says so.
+- Kept in DuckDB, in the `routine` table. A one-click save is audited like any other.
+
 ## Done: mail you have dealt with
 
 Once you have dealt with a message, its row in the Inbox turns green and says how:
@@ -210,8 +287,10 @@ Once you have dealt with a message, its row in the Inbox turns green and says ho
 - **Done**, when you pressed **Done** on the row, or ticked several and pressed **Mark done**. **Not done**
   takes it back.
 
-The header counts them ("3 done"). Mail you have dealt with drops out of **What needs you now**, and its
-Done button is on each of the AI's picks too.
+Mail you have dealt with leaves the Inbox list. The header counts it, and **Show 3 done** brings it back
+(green; **Hide 3 done** hides it again, and the choice is kept). After **Done** or **Mark done**, **Undo**
+takes it back. Search always shows it. It also drops out of **What needs you now**, and its Done button
+is on each of the AI's picks too.
 
 Done is cockatoo's own mark: nothing changes in Gmail, and the message stays unread and in the inbox.
 Nothing is stored beside the audit: saved, done and not done are read from it (the latest mark wins),
@@ -223,7 +302,7 @@ the inbox (rare), the marks on older mail no longer show; the audit still holds 
 Every action is recorded in DuckDB before anything changes and again after, insert-only:
 
 - `action`: when, which account (by address, so the record outlives the account), what (`trash`, `spam`,
-  `unsubscribe`, `save_attachments`, `done`, `not_done`), the criteria (`{"kind":"sender","address":...}` or `{"kind":"year","year":...}`), the
+  `unsubscribe`, `save_attachments`, `done`, `not_done`, `reply`), the criteria (`{"kind":"sender","address":...}` or `{"kind":"year","year":...}`), the
   description you confirmed, who asked (`you`; later `ai`), the folder used, how many messages matched.
 - `action_item`: each message the action was for: UID, Message-ID, sender, subject, date.
 - `action_result`: when it finished, `done`, `partial`, `failed` or `opened`, how many moved, which did
@@ -250,6 +329,20 @@ Under **AI** in the header: tick **Use AI in cockatoo**, paste an Anthropic API 
   5.5. When Anthropic's safety checks decline a request, the server retries it on the model Anthropic
   recommends (`fallbacks: "default"`). Every feature gets its client from `ai.Service.Client`, which
   refuses when AI is off or no key is saved.
+
+## Progress
+
+Anything that waits on Gmail or Claude shows that it is working:
+
+- A thin bar across the top of the window while cockatoo waits on something you asked for (it shows
+  only after a moment, so quick answers do not flicker it). Polls of the sync's state are left out.
+- Where you asked: a spinner on the button (Send, Save, Delete, Mark done, Ask AI, Move to Trash, Test
+  connection, Save key), and a line saying what is happening, with the seconds counted after the
+  first few (opening a conversation, asking Claude, saving attachments).
+- The sync: a spinner while it checks, and a bar while it reads a known number of messages.
+- A message on its way to Trash is dimmed on its row, its button turning, until Gmail confirms.
+
+Spinners and the bar stand still for people who ask their system for less motion.
 
 ## The window
 
@@ -305,7 +398,7 @@ internal/account/ use cases for mail accounts: test, save, remove; Google sign-i
 internal/triage/  what needs you now: the unread mail sent to the AI, its answer checked and recorded
 internal/ai/      the Anthropic client, and the AI settings that hold the key and turn it on
 internal/mail/    IMAP: sign in (password or Google token), count, list and read headers; move to Trash or Spam;
-                  read a message's text or its attachments
+                  read a message's text or its attachments; clean a message for reading
 internal/files/   save folders on disk: safe names, subfolders, writing a file without overwriting
 internal/secret/  encrypts passwords with Windows DPAPI before they are stored
 internal/store/   DuckDB: schema migrations, single writer, queries

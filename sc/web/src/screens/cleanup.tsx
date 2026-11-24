@@ -12,9 +12,11 @@ import {
   type SenderCount,
 } from "@/api"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { SyncLine } from "@/components/sync-line"
 import { useSync } from "@/hooks/use-sync"
-import { cn } from "@/lib/utils"
+import { cn, tabClass } from "@/lib/utils"
+import { Working } from "@/components/working"
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; overview: Overview }
 
@@ -56,7 +58,7 @@ export function CleanupScreen({ accounts }: { accounts: Account[] }) {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Clean up</h1>
+      <h1 className="text-[2rem] leading-tight font-bold tracking-[-0.025em]">Clean up</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         {o && o.messages > 0
           ? `${n(o.messages)} messages in your inbox · ${n(o.unread)} unread · since ${o.oldest ? year(o.oldest) : "—"}`
@@ -64,11 +66,12 @@ export function CleanupScreen({ accounts }: { accounts: Account[] }) {
       </p>
 
       {accounts.length > 1 && (
-        <div className="mt-4 flex flex-wrap gap-1" role="group" aria-label="Account">
+        <div className="mt-5 flex flex-wrap gap-x-5 gap-y-1" role="group" aria-label="Account">
           {accounts.map((a) => (
             <Button
               key={a.id}
-              variant={a.id === accountId ? "secondary" : "ghost"}
+              variant="ghost"
+              className={tabClass(a.id === accountId)}
               aria-pressed={a.id === accountId}
               onClick={() => {
                 setAccountId(a.id)
@@ -94,7 +97,7 @@ export function CleanupScreen({ accounts }: { accounts: Account[] }) {
 
       <div aria-live="polite">{result && <ResultLine result={result} onClose={() => setResult(null)} />}</div>
 
-      {load.kind === "loading" && <p className="mt-8 text-sm text-muted-foreground">Opening…</p>}
+      {load.kind === "loading" && <Working className="mt-8">Opening…</Working>}
       {load.kind === "error" && (
         <p role="alert" className="mt-8 text-sm text-destructive">
           Cockatoo could not read its copy of your inbox: {load.message}
@@ -131,7 +134,7 @@ function Years({ overview: o, actions }: { overview: Overview; actions: Actions 
   const most = Math.max(...o.years.map((y) => y.messages))
   return (
     <section aria-labelledby="years-heading">
-      <h2 id="years-heading" className="text-sm font-medium">
+      <h2 id="years-heading" className="section-head">
         By year
       </h2>
       <table className="mt-3 w-full text-sm">
@@ -147,9 +150,7 @@ function Years({ overview: o, actions }: { overview: Overview; actions: Actions 
           {[...o.years].reverse().map((y) => {
             const key = `year-${y.year}`
             const open = actions.pending?.key === key
-            return (
-              <YearRow key={key} rowKey={key} y={y} most={most} open={open} actions={actions} />
-            )
+            return <YearRow key={key} rowKey={key} y={y} most={most} open={open} actions={actions} />
           })}
         </tbody>
       </table>
@@ -226,7 +227,7 @@ function Senders({ overview: o, actions }: { overview: Overview; actions: Action
   return (
     <section aria-labelledby="senders-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="senders-heading" className="text-sm font-medium">
+        <h2 id="senders-heading" className="section-head">
           Senders
         </h2>
         <div className="flex gap-1" role="group" aria-label="Which senders">
@@ -400,7 +401,7 @@ function Confirm({ pending, actions }: { pending: Pending; actions: Actions }) {
   const dest = where(pending.kind)
 
   return (
-    <div className="rounded-lg border bg-background px-4 py-3 text-sm">
+    <div className="rounded-lg border bg-card px-4 py-3 text-sm">
       {state.kind === "loading" && <p className="text-muted-foreground">Counting…</p>}
       {preview && (
         <>
@@ -436,6 +437,7 @@ function Confirm({ pending, actions }: { pending: Pending; actions: Actions }) {
             onClick={() => apply(preview)}
             disabled={state.kind === "busy" || preview.messages === 0}
           >
+            {state.kind === "busy" && <Spinner />}
             {state.kind === "busy" ? `Moving ${n(preview.messages)}…` : `Move to ${dest}`}
           </Button>
         )}

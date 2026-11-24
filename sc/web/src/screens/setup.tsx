@@ -3,9 +3,11 @@ import { useState, type ChangeEvent, type FormEvent } from "react"
 import { api, type Account, type AccountInput, type Inbox } from "@/api"
 import { GoogleSignIn } from "@/components/google-sign-in"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { inboxLine } from "@/lib/format"
+import bird from "@/assets/cockatoo-bird.webp"
 
 type Result =
   | { kind: "none" }
@@ -54,7 +56,16 @@ export function SetupScreen({
 
   return (
     <div className="max-w-xl">
-      <h1 className="text-2xl font-semibold tracking-tight">
+      {first && (
+        <div className="mb-8 flex items-end gap-5 border-b pb-6">
+          <img src={bird} alt="" className="h-24 w-auto" />
+          <div className="pb-1">
+            <p className="text-3xl font-bold tracking-[-0.03em]">cockatoo</p>
+            <p className="text-base font-medium text-muted-foreground">Only the emails that matter.</p>
+          </div>
+        </div>
+      )}
+      <h1 className="text-[2rem] leading-tight font-bold tracking-[-0.025em]">
         {first ? "Add your Gmail account" : "Add another Gmail account"}
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
@@ -64,7 +75,7 @@ export function SetupScreen({
       </p>
 
       <section aria-labelledby="google-heading" className="mt-8">
-        <h2 id="google-heading" className="text-sm font-medium">
+        <h2 id="google-heading" className="section-head">
           Work or school account
         </h2>
         <p className="mt-1 mb-4 text-sm text-muted-foreground">
@@ -74,7 +85,7 @@ export function SetupScreen({
         <GoogleSignIn onSignedIn={onSaved} />
       </section>
 
-      <h2 className="mt-10 border-t pt-8 text-sm font-medium">Personal Gmail, with an app password</h2>
+      <h2 className="section-head mt-10 border-t pt-8">Personal Gmail, with an app password</h2>
 
       <form onSubmit={save} className="mt-4 space-y-5">
         <div className="space-y-2">
@@ -149,9 +160,11 @@ export function SetupScreen({
 
         <div className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="lg" disabled={busy}>
+            {result.kind === "busy" && result.doing === "save" && <Spinner />}
             {result.kind === "busy" && result.doing === "save" ? "Connecting…" : "Save account"}
           </Button>
           <Button type="button" size="lg" variant="outline" onClick={test} disabled={busy}>
+            {result.kind === "busy" && result.doing === "test" && <Spinner />}
             {result.kind === "busy" && result.doing === "test" ? "Connecting…" : "Test connection"}
           </Button>
           {onCancel && (
@@ -162,8 +175,8 @@ export function SetupScreen({
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Save signs in to Gmail first and keeps the account only when that works. The app password is encrypted
-          with your Windows sign-in before it is stored, so only you, on this computer, can read it.
+          Save signs in to Gmail first and keeps the account only when that works. The app password is encrypted with
+          your Windows sign-in before it is stored, so only you, on this computer, can read it.
         </p>
       </form>
     </div>

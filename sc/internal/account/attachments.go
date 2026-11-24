@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"cockatoo/internal/files"
 	imap "cockatoo/internal/mail"
@@ -78,6 +79,8 @@ type SaveRequest struct {
 type SavedMessage struct {
 	Key     store.MessageKey   `json:"key"`
 	Subject string             `json:"subject"`
+	From    string             `json:"from"`       // the sender's address, to offer a routine for it
+	Date    time.Time          `json:"receivedAt"` // when it arrived
 	Files   []store.ActionFile `json:"files"`
 	Skipped []string           `json:"skipped,omitempty"` // things in it that were not saved, and why
 	Problem string             `json:"problem,omitempty"` // why nothing could be saved from it
@@ -153,7 +156,7 @@ func (s *Service) saveFromAccount(ctx context.Context, accountID int64, keys []s
 		results[i] = SavedMessage{Key: k, Files: []store.ActionFile{}}
 		if m, ok := known[k]; ok {
 			items = append(items, m)
-			results[i].Subject = m.Subject
+			results[i].Subject, results[i].From, results[i].Date = m.Subject, strings.ToLower(m.FromAddr), m.ReceivedAt
 		}
 	}
 

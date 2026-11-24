@@ -273,6 +273,23 @@ var migrations = []string{
 	   path         VARCHAR NOT NULL,
 	   bytes        BIGINT NOT NULL
 	 );`,
+
+	// 11: routines, what the user does every time a certain mail comes in: mail from an address
+	// or a domain (and, if given, with text in its subject) and what to do with it. For now the
+	// action is saving its attachments into a save folder, in a subfolder for the mail's month or
+	// day when dated is set. No foreign key: a removed save folder leaves the routine, shown as
+	// broken.
+	`CREATE SEQUENCE IF NOT EXISTS seq_routine START 1;
+	 CREATE TABLE IF NOT EXISTS routine (
+	   id            INTEGER PRIMARY KEY DEFAULT nextval('seq_routine'),
+	   match_from    VARCHAR NOT NULL,
+	   match_subject VARCHAR,
+	   action        VARCHAR NOT NULL,
+	   folder_id     INTEGER,
+	   path          VARCHAR,
+	   dated         VARCHAR,
+	   created_at    TIMESTAMP NOT NULL
+	 );`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -11,17 +11,18 @@ import (
 
 // Message is the header of one inbox message, as kept in the cache.
 type Message struct {
-	AccountID   int64       `json:"accountId"`
-	UIDValidity uint32      `json:"uidValidity"`
-	UID         uint32      `json:"uid"`
-	MessageID   string      `json:"messageId"`
-	FromName    string      `json:"fromName"`
-	FromAddr    string      `json:"fromAddr"`
-	Subject     string      `json:"subject"`
-	ReceivedAt  time.Time   `json:"receivedAt"` // UTC
-	Seen        bool        `json:"seen"`
-	Handled     *Handled    `json:"handled,omitempty"` // what the user did about it; filled where it is shown
-	Unsubscribe Unsubscribe `json:"-"`
+	AccountID   int64         `json:"accountId"`
+	UIDValidity uint32        `json:"uidValidity"`
+	UID         uint32        `json:"uid"`
+	MessageID   string        `json:"messageId"`
+	FromName    string        `json:"fromName"`
+	FromAddr    string        `json:"fromAddr"`
+	Subject     string        `json:"subject"`
+	ReceivedAt  time.Time     `json:"receivedAt"` // UTC
+	Seen        bool          `json:"seen"`
+	Handled     *Handled      `json:"handled,omitempty"` // what the user did about it; filled where it is shown
+	Routine     *RoutineMatch `json:"routine,omitempty"` // the routine for it, while it is not dealt with; filled where it is shown
+	Unsubscribe Unsubscribe   `json:"-"`
 	// What tells mail that needs a reply from mail to skim; kept, not shown as they are.
 	To            []string `json:"-"`
 	Cc            []string `json:"-"`

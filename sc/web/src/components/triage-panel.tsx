@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
-import { Sparkles } from "lucide-react"
 
 import { api, type AISettings, type MessageKey, type TriagePick, type TriageResult } from "@/api"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Spinner } from "@/components/ui/spinner"
+import { Working } from "@/components/working"
 import { cn } from "@/lib/utils"
 
 type State =
@@ -29,6 +30,8 @@ export function TriagePanel({
   onGoToAI,
   refresh,
   onDone,
+  onOpen,
+  onPicks,
 }: {
   scope: "all" | number
   accountNames: Map<number, string>
@@ -37,6 +40,8 @@ export function TriagePanel({
   onGoToAI: () => void
   refresh: number // changes when you mark or save something: picks you dealt with drop out
   onDone: (m: MessageKey) => Promise<boolean>
+  onOpen: (m: MessageKey) => void
+  onPicks?: (picks: Map<string, "now" | "today">) => void // which messages the AI picked, for the list below
 }) {
   const [state, setState] = useState<State>({ kind: "loading" })
   const [aiReady, setAiReady] = useState<boolean | null>(null)
@@ -78,24 +83,32 @@ export function TriagePanel({
     }
   }
 
+  useEffect(() => {
+    const picks = new Map<string, "now" | "today">()
+    for (const p of result?.picks ?? []) {
+      const m = p.message
+      picks.set(`${m.accountId}-${m.uidValidity}-${m.uid}`, p.priority === "now" ? "now" : "today")
+    }
+    onPicks?.(picks)
+  }, [result, onPicks])
+
   const now = result?.picks.filter((p) => p.priority === "now") ?? []
   const today = result?.picks.filter((p) => p.priority === "today") ?? []
 
   return (
-    <section aria-labelledby="triage-heading" className="mt-6 rounded-xl border px-5 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id="triage-heading" className="flex items-center gap-2 text-sm font-medium">
-            <Sparkles aria-hidden className="size-4 text-muted-foreground" />
+    <section aria-labelledby="triage-heading" className="mt-8">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3">
+        <div className="contents">
+          <h2 id="triage-heading" className="self-center text-lg font-bold tracking-[-0.01em]">
             What needs you now
           </h2>
-          <p className="mt-1 max-w-prose text-xs text-muted-foreground">
+          <p className="col-span-2 mt-1.5 max-w-prose text-xs leading-relaxed text-muted-foreground">
             Cockatoo first leaves out newsletters, notifications and mail you have already dealt with (replied, saved or
             marked done). The rest of your unread mail from the last 30 days goes to Anthropic with your key: sender,
             subject, date
             {withText ? ", and the first lines of each message (cockatoo does not keep the text)" : ""}.
           </p>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="col-span-2 mt-2 flex items-center gap-2">
             <Checkbox
               id="triage-text"
               checked={withText}
@@ -108,15 +121,17 @@ export function TriagePanel({
           </div>
         </div>
         {aiReady === false ? (
-          <Button variant="outline" onClick={onGoToAI}>
+          <Button variant="outline" onClick={onGoToAI} className="col-start-2 row-start-1">
             Turn on AI
           </Button>
         ) : (
           <Button
+            className="col-start-2 row-start-1"
             onClick={ask}
             disabled={asking || syncRunning || aiReady === null}
             title={syncRunning ? "Wait until cockatoo has finished checking your mail." : undefined}
           >
+            {asking && <Spinner />}
             {asking ? "Asking…" : result ? "Ask again" : "Ask AI"}
           </Button>
         )}
@@ -127,9 +142,9 @@ export function TriagePanel({
           <p className="mt-3 text-sm text-muted-foreground">AI is off. Turn it on and add your Anthropic key first.</p>
         )}
         {asking && (
-          <p className="mt-3 text-sm text-muted-foreground">
+          <Working className="mt-3">
             {withText ? "Reading the first lines and asking Claude…" : "Asking Claude…"}
-          </p>
+          </Working>
         )}
         {state.kind === "error" && (
           <p role="alert" className="mt-3 text-sm text-destructive">
@@ -139,18 +154,27 @@ export function TriagePanel({
 
         {result && !asking && (
           <div className="mt-4">
-            <p className="text-sm">{result.summary}</p>
+            <p className="pen text-[1.35rem]">{result.summary}</p>
 
             {now.length > 0 && (
-              <Group title="Now" picks={now} accountNames={accountNames} showAccount={showAccount} onDone={onDone} />
+              <Group
+                title="Now"
+                picks={now}
+                accountNames={accountNames}
+                showAccount={showAccount}
+                onDone={onDone}
+                onOpen={onOpen}
+              />
             )}
             {today.length > 0 && (
               <Group
+                soft
                 title="Today"
                 picks={today}
                 accountNames={accountNames}
                 showAccount={showAccount}
                 onDone={onDone}
+                onOpen={onOpen}
               />
             )}
 
@@ -181,48 +205,62 @@ export function TriagePanel({
 }
 
 function Group({
+  soft = false,
   title,
   picks,
   accountNames,
   showAccount,
   onDone,
+  onOpen,
 }: {
+  soft?: boolean // what can wait until later today gets a lighter stroke
   title: string
   picks: TriagePick[]
   accountNames: Map<number, string>
   showAccount: boolean
   onDone: (m: MessageKey) => Promise<boolean>
+  onOpen: (m: MessageKey) => void
 }) {
   return (
-    <div className="mt-4">
-      <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
-      <ul className="mt-1 divide-y">
+    <div className="mt-5">
+      <h3 className="section-head">{title}</h3>
+      <ul className="mt-1 divide-y border-y">
         {picks.map((p) => {
           const m = p.message
           return (
-            <li key={`${m.accountId}-${m.uidValidity}-${m.uid}`} className="flex items-center gap-3 py-2.5">
-              <div className="min-w-0 flex-1">
+            <li key={`${m.accountId}-${m.uidValidity}-${m.uid}`} className="flex items-center gap-4 py-3.5">
+              <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onOpen(m)}>
                 <div className="flex items-baseline justify-between gap-3">
-                  <p className="truncate text-sm font-semibold" title={m.fromAddr}>
+                  <p className="truncate text-[0.9375rem] font-semibold" title={m.fromAddr}>
                     {m.fromName || m.fromAddr || "(unknown sender)"}
                   </p>
                   <span
                     className={cn(
                       "shrink-0 text-xs tabular-nums",
-                      p.overdue ? "text-foreground" : "text-muted-foreground",
+                      p.overdue ? "font-semibold text-foreground" : "text-muted-foreground",
                     )}
                   >
                     {ago(m.receivedAt, p.overdue)}
                   </span>
                 </div>
-                <p className="truncate text-sm">{m.subject || <span className="italic">(no subject)</span>}</p>
-                <p className="mt-0.5 text-sm text-muted-foreground">{p.reason}</p>
+                <button
+                  type="button"
+                  aria-label={`Open: ${m.subject || "(no subject)"}`}
+                  className="mt-0.5 block w-full text-left text-[0.9375rem] leading-snug underline-offset-4 hover:underline"
+                >
+                  <span className={cn("hl", soft && "soft")}>
+                    {m.subject || <span className="italic">(no subject)</span>}
+                  </span>
+                </button>
+                <p className="pen mt-1 text-xl">{p.reason}</p>
                 {p.signals && <p className="mt-0.5 text-xs text-muted-foreground">{signalLine(p.signals)}</p>}
                 {showAccount && <p className="mt-0.5 text-xs text-muted-foreground">{accountNames.get(m.accountId)}</p>}
               </div>
-              <Button size="sm" variant="outline" onClick={() => onDone(m)}>
-                Done
-              </Button>
+              <div className="flex w-28 shrink-0 justify-end">
+                <Button size="sm" variant="outline" onClick={() => onDone(m)}>
+                  Done
+                </Button>
+              </div>
             </li>
           )
         })}
@@ -250,6 +288,7 @@ function leftLine(r: TriageResult): string {
 // "Answers your message · To you · You've written to them 14 times".
 function signalLine(s: NonNullable<TriagePick["signals"]>): string {
   const parts = []
+  if (s.routine) parts.push(`Your routine: ${s.routine}`)
   if (s.repliesToYou) parts.push("Answers your message")
   parts.push(s.toYou ? "To you" : s.ccYou ? "You're on CC" : "Not addressed to you by name")
   parts.push(

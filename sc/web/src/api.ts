@@ -60,6 +60,7 @@ export interface MailMessage {
   receivedAt: string // UTC
   seen: boolean
   handled?: Handled // what you have done about it; absent when nothing
+  routine?: RoutineMatch // the routine for it, while it is not dealt with
 }
 
 // What you have done about a message, read from the audit and the Sent folder.
@@ -75,6 +76,101 @@ export interface Handled {
 export interface InboxList {
   since: string
   messages: MailMessage[]
+  waiting: MailMessage[] // mail of the last 60 days a routine is waiting on, newest first
+}
+
+// One message of an opened conversation.
+export interface ConversationMessage {
+  key?: MessageKey // inbox mail only: what Save and Done work on
+  folder: "inbox" | "sent"
+  mine: boolean // you sent it
+  opened: boolean // the message you opened
+  fromName: string
+  fromAddr: string
+  at: string
+  seen: boolean
+  text: string // what the person wrote: no quotes, signature or pictures
+  full: string // everything it said, as text
+  cut: boolean // longer than what was read
+  attachments: { name: string; size: number }[]
+  handled?: Handled
+  routine?: RoutineMatch
+  problem?: string // why it could not be shown
+}
+
+// An opened message and the messages around it, oldest first.
+export interface Conversation {
+  subject: string
+  messageId: string // the opened message's, to find it in Gmail
+  account: string // the account's address
+  messages: ConversationMessage[]
+  older: number // older messages left out
+  sentPartial: boolean // the Sent folder is not fully read: replies may be missing
+  reply?: ReplyPreview // who a reply goes to: the newest message from someone else
+}
+
+// Who a reply to a message goes to; cc is added with "Reply all".
+export interface ReplyPreview {
+  key: MessageKey
+  to: string[]
+  cc: string[]
+}
+
+// A reply that was sent.
+export interface ReplyResult {
+  messageId: string
+  to: string[]
+  cc: string[]
+  at: string
+}
+
+// What deleting chosen messages did: moved to Gmail's Trash.
+export interface DeleteResult {
+  moved: number
+  notMoved: number
+  outcome: "done" | "partial" | "failed" | "unknown"
+  error?: string
+}
+
+// What a search of the inbox found: newest first, at most 200.
+export interface SearchResult {
+  query: string
+  messages: MailMessage[]
+  more: boolean // there were more; the newest are shown
+}
+
+// Something you do every time a certain mail comes in. For now: save its attachments.
+export interface Routine {
+  id: number
+  from: string // an address ("billing@acme.com") or a domain ("acme.com")
+  subject?: string // text the subject contains; absent for any
+  action: "save"
+  folderId: number
+  path: string // inside the save folder; with dated, where the dated folder goes
+  dated?: "month" | "day" // a subfolder named for the mail's date
+  createdAt: string
+  folderName?: string
+  missing: boolean // its save folder is gone
+}
+
+// What a routine wants done with one message: where its attachments go.
+export interface RoutineMatch {
+  routineId: number
+  action: "save"
+  folderId: number
+  folderName?: string
+  parent: string // where the dated folder goes, or the target itself
+  name?: string // the dated folder for this message, "2026-11"
+  missing?: boolean
+}
+
+// A routine as you set it up.
+export interface RoutineInput {
+  from: string
+  subject: string
+  folderId: number
+  path: string
+  dated: "" | "month" | "day"
 }
 
 // What the sync is doing. It copies every account's inbox headers into cockatoo, in the background.
@@ -174,6 +270,8 @@ export interface SaveResult {
   messages: {
     key: MessageKey
     subject: string
+    from: string // the sender's address, lower case
+    receivedAt: string
     files: { path: string; bytes: number }[]
     skipped?: string[]
     problem?: string
@@ -193,6 +291,7 @@ export interface TriagePick {
     repliesToYou: boolean
     wrote: number
     automated: boolean
+    routine?: string // what one of your routines says to do with it
   }
 }
 
@@ -245,7 +344,34 @@ export class ApiError extends Error {
 // are dropped.
 export const useMock = import.meta.env.DEV && import.meta.env.VITE_MOCK_API === "1"
 
+// Requests in flight that you wait on, for the activity bar. Polls of the sync's state and the
+// health check are left out: they run all the time.
+let active = 0
+const listeners = new Set<(n: number) => void>()
+export function onActivity(fn: (n: number) => void): () => void {
+  listeners.add(fn)
+  fn(active)
+  return () => {
+    listeners.delete(fn)
+  }
+}
+function track(delta: number) {
+  active += delta
+  for (const fn of listeners) fn(active)
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const quiet = (init?.method ?? "GET") === "GET" && (path.startsWith("/api/sync") || path === "/api/health")
+  if (quiet) return send<T>(path, init)
+  track(1)
+  try {
+    return await send<T>(path, init)
+  } finally {
+    track(-1)
+  }
+}
+
+async function send<T>(path: string, init?: RequestInit): Promise<T> {
   if (useMock) {
     const { mockRequest } = await import("./api.mock")
     return mockRequest<T>(path, init)
@@ -315,6 +441,21 @@ export const api = {
       body: JSON.stringify({ path, name }),
     }),
   // Marks messages done, or not done; audited. Changes nothing in the mailbox.
+  // Opens a message: its conversation, read from the mail server (nothing is marked as read).
+  conversation: (k: MessageKey) =>
+    request<Conversation>(`/api/conversation?account=${k.accountId}&uidValidity=${k.uidValidity}&uid=${k.uid}`),
+  // Searches the whole copy of the inbox by sender and subject.
+  searchInbox: (q: string, account: number | "all") =>
+    request<SearchResult>(`/api/inbox/search?q=${encodeURIComponent(q)}&account=${account}`),
+  routines: () => request<Routine[]>("/api/routines"),
+  addRoutine: (r: RoutineInput) => request<Routine>("/api/routines", { method: "POST", body: JSON.stringify(r) }),
+  removeRoutine: (id: number) => request<void>(`/api/routines/${id}`, { method: "DELETE" }),
+  // Sends a reply through Gmail; audited.
+  reply: (r: { message: MessageKey; text: string; all: boolean }) =>
+    request<ReplyResult>("/api/reply", { method: "POST", body: JSON.stringify(r) }),
+  // Moves messages to Gmail's Trash; audited.
+  deleteMessages: (messages: MessageKey[]) =>
+    request<DeleteResult>("/api/messages/delete", { method: "POST", body: JSON.stringify({ messages }) }),
   markDone: (messages: MessageKey[], done: boolean) =>
     request<{ marked: number }>("/api/messages/done", {
       method: "POST",

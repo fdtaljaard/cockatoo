@@ -2,9 +2,11 @@ import { useEffect, useState, type FormEvent } from "react"
 
 import { api, type AIReply, type AISettings } from "@/api"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Working } from "@/components/working"
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; settings: AISettings }
 
@@ -21,7 +23,7 @@ export function AIScreen() {
       .catch((e: Error) => setLoad({ kind: "error", message: e.message }))
   }, [])
 
-  if (load.kind === "loading") return <p className="text-sm text-muted-foreground">Opening…</p>
+  if (load.kind === "loading") return <Working>Opening…</Working>
   if (load.kind === "error") {
     return (
       <p role="alert" className="rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive">
@@ -47,7 +49,7 @@ export function AIScreen() {
 
   return (
     <div className="max-w-xl">
-      <h1 className="text-2xl font-semibold tracking-tight">AI</h1>
+      <h1 className="text-[2rem] leading-tight font-bold tracking-[-0.025em]">AI</h1>
       <p className="mt-2 text-sm text-muted-foreground">
         Cockatoo uses Anthropic's Claude with your own API key. Mail text goes to Anthropic only when you use an AI
         feature, straight from this computer.
@@ -125,7 +127,7 @@ function KeySection({ settings, onChange }: { settings: AISettings; onChange: (s
   if (settings.hasKey && !editing) {
     return (
       <section>
-        <h2 className="text-sm font-medium">API key</h2>
+        <h2 className="section-head">API key</h2>
         <p className="mt-2 text-sm">
           <span className="font-mono">{settings.keyHint}</span>{" "}
           <span className="text-muted-foreground">saved and encrypted</span>
@@ -196,6 +198,7 @@ function KeySection({ settings, onChange }: { settings: AISettings; onChange: (s
         </div>
         <div className="flex gap-2">
           <Button type="submit" size="lg" disabled={busy}>
+            {busy && <Spinner />}
             {busy ? "Checking…" : "Save key"}
           </Button>
           {settings.hasKey && (
@@ -228,11 +231,12 @@ function TestMessage() {
 
   return (
     <section>
-      <h2 className="text-sm font-medium">Try it</h2>
+      <h2 className="section-head">Try it</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Sends one short message to Claude with your key. It costs a fraction of a cent.
       </p>
       <Button className="mt-3" variant="outline" onClick={send} disabled={state.kind === "busy"}>
+        {state.kind === "busy" && <Spinner />}
         {state.kind === "busy" ? "Waiting for Claude…" : "Send a test message"}
       </Button>
       <div className="mt-3 text-sm" aria-live="polite">

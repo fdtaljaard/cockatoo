@@ -42,6 +42,12 @@ type Service struct {
 
 	openMover func(ctx context.Context, srv imap.Server, login imap.Login) (mover, error)
 
+	// Sending replies: the server, how a message is handed to it, and what runs after a send
+	// (a sync, so the reply shows from the Sent folder). send is nil until set up (tests set it).
+	smtp          imap.SMTPServer
+	send          func(ctx context.Context, srv imap.SMTPServer, login imap.Login, from string, rcpt []string, msg []byte) error
+	syncAfterSend func()
+
 	google  googleState
 	sync    syncer
 	acting  bool           // an action is running (guarded by sync.mu)
@@ -54,11 +60,14 @@ func New(st *store.Store) *Service { return NewFor(st, imap.Gmail) }
 
 // NewFor returns the service for another IMAP server. The tests use it to stand in for Gmail.
 func NewFor(st *store.Store, server imap.Server) *Service {
-	return &Service{
+	s := &Service{
 		st: st, server: server, check: imap.CheckInbox, dial: dialSession, dialSent: dialSentFolder, openMover: openMover,
 		seal: secret.Seal, open: secret.Open,
 		google: googleState{endpoint: googleEndpoint, open: openInBrowser, pending: map[string]*signIn{}},
+		smtp:   imap.GmailSMTP, send: imap.Send,
 	}
+	s.syncAfterSend = func() { s.StartSync() }
+	return s
 }
 
 // timeout bounds one sign-in and inbox count.

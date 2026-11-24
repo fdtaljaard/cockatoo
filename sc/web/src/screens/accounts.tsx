@@ -18,12 +18,12 @@ export function AccountsScreen({
   return (
     <div className="max-w-xl">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+        <h1 className="text-[2rem] leading-tight font-bold tracking-[-0.025em]">Accounts</h1>
         <Button size="lg" variant="outline" onClick={onAdd}>
           Add account
         </Button>
       </div>
-      <ul className="mt-6 divide-y rounded-lg border">
+      <ul className="mt-6 divide-y border-y">
         {accounts.map((account) => (
           <AccountRow key={account.id} account={account} onRemoved={onRemoved} />
         ))}

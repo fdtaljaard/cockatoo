@@ -2,6 +2,7 @@
 // VITE_MOCK_API=1, so the screens can be worked on with no exe and no mail account.
 // Accounts and AI settings are kept in sessionStorage: they survive a reload and go when the tab
 // closes. The password "wrong" and the API key "wrong" are refused, to show the error states.
+// Open it with ?demo for two accounts, the AI turned on and an answer from it, as for screenshots.
 
 import {
   ApiError,
@@ -13,12 +14,39 @@ import {
   type InboxList,
   type MailMessage,
   type MessageKey,
+  type ConversationMessage,
+  type Routine,
+  type RoutineInput,
+  type RoutineMatch,
+  type SaveFolder,
   type Overview,
   type SenderCount,
   type SyncStatus,
 } from "./api"
 
 const AI_KEY = "cockatoo.mock.ai"
+
+const demo = new URLSearchParams(location.search).has("demo")
+if (demo && !sessionStorage.getItem("cockatoo.mock.accounts")) {
+  const at = new Date().toISOString()
+  sessionStorage.setItem(
+    "cockatoo.mock.accounts",
+    JSON.stringify([
+      { id: 1, provider: "gmail", name: "Personal", email: "sam@example.com", auth: "password", createdAt: at },
+      { id: 2, provider: "gmail", name: "Work", email: "sam@work.example.com", auth: "google", createdAt: at },
+    ]),
+  )
+  sessionStorage.setItem("cockatoo.mock.refreshed", "1")
+  sessionStorage.setItem("cockatoo.mock.sync", JSON.stringify({ startedAt: Date.now() - 60_000, ms: 1 })) // read already
+  sessionStorage.setItem(
+    AI_KEY,
+    JSON.stringify({ provider: "anthropic", enabled: true, model: "claude-opus-5-5", hasKey: true, updatedAt: at }),
+  )
+  // The AI's answer, in place before the page asks for it.
+  queueMicrotask(
+    () => void mockRequest("/api/triage", { method: "POST", body: JSON.stringify({ scope: "all", withText: true }) }),
+  )
+}
 
 function loadAI(): AISettings {
   const saved = sessionStorage.getItem(AI_KEY)
@@ -107,7 +135,58 @@ function mockInbox(accounts: Account[], refreshed: boolean): InboxList {
     })),
   )
   messages.sort((x, y) => y.receivedAt.localeCompare(x.receivedAt))
-  return { since: new Date(now - 24 * 3_600_000).toISOString(), messages }
+  return { since: new Date(now - 24 * 3_600_000).toISOString(), messages: notDeleted(messages), waiting: [] }
+}
+
+// Mock messages moved to Trash, by key.
+const DELETED_KEY = "cockatoo.mock.deleted"
+const deleted = () => new Set(JSON.parse(sessionStorage.getItem(DELETED_KEY) ?? "[]") as string[])
+const notDeleted = (list: MailMessage[]) => {
+  const gone = deleted()
+  return list.filter((m) => !gone.has(`${m.accountId}-${m.uidValidity}-${m.uid}`))
+}
+
+// Older mail, outside the 24 hours: last month's invoices, for the Waiting list.
+function mockOlder(accounts: Account[]): MailMessage[] {
+  const now = Date.now()
+  return notDeleted(
+    accounts.flatMap((a) =>
+      [
+        [5, "Your invoice for October (late)"],
+        [33, "Your invoice for October"],
+      ].map(([days, subject], i) => ({
+        accountId: a.id,
+        uidValidity: 1,
+        uid: 50 - i,
+        messageId: `${a.id}-old${i}@example.com`,
+        fromName: "",
+        fromAddr: "billing@example.com",
+        subject: String(subject),
+        receivedAt: new Date(now - Number(days) * 86_400_000).toISOString(),
+        seen: true,
+      })),
+    ),
+  )
+}
+
+// Mock routines. Unlike cockatoo, the mock also matches mail from before a routine was made, so
+// the Waiting list shows something at once.
+const ROUTINES_KEY = "cockatoo.mock.routines"
+const loadRoutines = () => JSON.parse(sessionStorage.getItem(ROUTINES_KEY) ?? "[]") as Routine[]
+function mockMatch(m: MailMessage): RoutineMatch | undefined {
+  const from = m.fromAddr.toLowerCase()
+  const r = loadRoutines()
+    .filter(
+      (r) =>
+        (r.from.includes("@") ? from === r.from : from.endsWith("@" + r.from)) &&
+        (!r.subject || m.subject.toLowerCase().includes(r.subject)),
+    )
+    .pop()
+  if (!r) return undefined
+  const d = new Date(m.receivedAt)
+  const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+  const name = r.dated === "month" ? month : r.dated === "day" ? `${month}-${String(d.getDate()).padStart(2, "0")}` : ""
+  return { routineId: r.id, action: "save", folderId: r.folderId, folderName: r.folderName, parent: r.path, name }
 }
 
 // A mailbox of about 11,000 messages over fifteen years, read by a sync that takes a few seconds
@@ -391,7 +470,7 @@ function save(accounts: Account[]) {
   sessionStorage.setItem(KEY, JSON.stringify(accounts))
 }
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, demo ? 0 : ms)) // no waiting in a demo
 
 function check(input: AccountInput): Inbox {
   if (!input.email.trim()) throw new ApiError("Enter your Gmail address.", 400)
@@ -427,12 +506,164 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
     if (syncFraction() === 0) return { since: new Date().toISOString(), messages: [] } as T
     const list = mockInbox(accounts, sessionStorage.getItem(SEEN_KEY) !== null)
     const handled = loadHandled()
-    list.messages = list.messages.map((m, i) => {
+    const withMarks = (m: MailMessage, replied = false): MailMessage => {
       const h = { ...handled[mockKey(m)] }
-      if (i === 3) h.replied = true // one message answered from Gmail, as the Sent folder would show
-      return Object.keys(h).length ? { ...m, handled: h } : m
-    })
+      if (replied) h.replied = true
+      if (Object.keys(h).length) return { ...m, handled: h }
+      const routine = mockMatch(m)
+      return routine ? { ...m, routine } : m
+    }
+    // One message answered from Gmail, as the Sent folder would show.
+    list.messages = list.messages.map((m, i) => withMarks(m, i === 2))
+    list.waiting = [...list.messages, ...mockOlder(accounts).map((m) => withMarks(m))].filter(
+      (m) => m.routine && !m.handled,
+    )
     return list as T
+  }
+  if (method === "POST" && path === "/api/messages/delete") {
+    await wait(600)
+    const b = JSON.parse(init!.body as string) as { messages: MessageKey[] }
+    const gone = deleted()
+    for (const k of b.messages) gone.add(mockKey(k))
+    sessionStorage.setItem(DELETED_KEY, JSON.stringify([...gone]))
+    return { moved: b.messages.length, notMoved: 0, outcome: "done" } as T
+  }
+  if (method === "POST" && path === "/api/reply") {
+    await wait(900)
+    const b = JSON.parse(init!.body as string) as { message: MessageKey; text: string; all: boolean }
+    if (!b.text.trim()) throw new ApiError("Write something to send.", 400)
+    if (b.text.includes("fail")) throw new ApiError("Gmail did not take the message: 550 mock refusal", 502)
+    return {
+      messageId: `mock-${Date.now()}@example.com`,
+      to: ["the sender"],
+      cc: b.all ? ["Bob Jones <bob@example.com>"] : [],
+      at: new Date().toISOString(),
+    } as T
+  }
+  if (method === "GET" && path.startsWith("/api/conversation")) {
+    await wait(400)
+    const params = new URLSearchParams(path.split("?")[1])
+    const all = [...mockInbox(accounts, true).messages, ...mockOlder(accounts)]
+    const m = all.find((x) => String(x.accountId) === params.get("account") && String(x.uid) === params.get("uid"))
+    if (!m) throw new ApiError("This message is no longer in your inbox.", 404)
+    const at = (minutesBefore: number) =>
+      new Date(new Date(m.receivedAt).getTime() - minutesBefore * 60_000).toISOString()
+    const name = m.fromName || m.fromAddr
+    const invoice = /invoice/i.test(m.subject)
+    const handled = loadHandled()[mockKey(m)]
+    const messages: ConversationMessage[] = [
+      {
+        folder: "inbox",
+        mine: false,
+        opened: false,
+        fromName: name,
+        fromAddr: m.fromAddr,
+        at: at(26 * 60),
+        seen: true,
+        text: invoice
+          ? "Hi, could you confirm the billing address for your account?\n\nKind regards\nAccounts team"
+          : "Hi! Are you free on Friday? There's a new place on Bree Street I've wanted to try.\n\nCheers\n" + name,
+        full: invoice
+          ? "Hi, could you confirm the billing address for your account?\n\nKind regards\nAccounts team\nAcme (Pty) Ltd | Reg. 2001/000000/07\n+27 21 000 0000 | www.example.com\n\nThis email and any attachments are confidential and intended solely for the addressee."
+          : "Hi! Are you free on Friday? There's a new place on Bree Street I've wanted to try.\n\nCheers\n" +
+            name +
+            "\nSent from my iPhone",
+        cut: false,
+        attachments: [],
+      },
+      {
+        folder: "sent",
+        mine: true,
+        opened: false,
+        fromName: "",
+        fromAddr: "me@example.com",
+        at: at(25 * 60),
+        seen: true,
+        text: invoice ? "It's 12 Long Street, Cape Town 8001." : "Friday works. 12:30? I'll book.",
+        full: invoice
+          ? "It's 12 Long Street, Cape Town 8001.\n\nOn Sun, Accounts team wrote:\n> Hi, could you confirm the billing address for your account?"
+          : "Friday works. 12:30? I'll book.\n\nOn Sun, " + name + " wrote:\n> Hi! Are you free on Friday?",
+        cut: false,
+        attachments: [],
+      },
+      {
+        key: { accountId: m.accountId, uidValidity: m.uidValidity, uid: m.uid },
+        folder: "inbox",
+        mine: false,
+        opened: true,
+        fromName: name,
+        fromAddr: m.fromAddr,
+        at: m.receivedAt,
+        seen: m.seen,
+        text: invoice
+          ? "Thank you. Your invoice for this month is attached. You can see it online too: https://billing.example.com/invoices\n\nKind regards\nAccounts team"
+          : m.subject || "(no text)",
+        full: invoice
+          ? "Thank you. Your invoice for this month is attached. You can see it online too: https://billing.example.com/invoices\n\nKind regards\nAccounts team\nAcme (Pty) Ltd | Reg. 2001/000000/07\n+27 21 000 0000\n\nOn Mon, you wrote:\n> It's 12 Long Street, Cape Town 8001."
+          : m.subject,
+        cut: false,
+        attachments: invoice ? [{ name: "invoice-2026-11.pdf", size: 48213 }] : [],
+        handled,
+        routine: handled ? undefined : mockMatch(m),
+      },
+    ]
+    return {
+      subject: m.subject,
+      messageId: m.messageId,
+      account: "me@example.com",
+      messages,
+      older: 0,
+      sentPartial: false,
+      reply: {
+        key: { accountId: m.accountId, uidValidity: m.uidValidity, uid: m.uid },
+        to: [m.fromName ? `${m.fromName} <${m.fromAddr}>` : m.fromAddr],
+        cc: ["Bob Jones <bob@example.com>"],
+      },
+    } as T
+  }
+  if (method === "GET" && path.startsWith("/api/inbox/search")) {
+    const params = new URLSearchParams(path.split("?")[1])
+    const words = (params.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean)
+    const account = params.get("account")
+    const all = [...mockInbox(accounts, true).messages, ...mockOlder(accounts)]
+    const messages = all
+      .filter((m) => account === "all" || String(m.accountId) === account)
+      .filter((m) => words.every((w) => `${m.fromName} ${m.fromAddr} ${m.subject}`.toLowerCase().includes(w)))
+      .sort((x, y) => y.receivedAt.localeCompare(x.receivedAt))
+    return { query: params.get("q") ?? "", messages, more: false } as T
+  }
+  if (path.startsWith("/api/routines")) {
+    const routines = loadRoutines()
+    if (method === "GET") return routines as T
+    if (method === "POST") {
+      const b = JSON.parse(init!.body as string) as RoutineInput
+      const from = b.from.trim().toLowerCase().replace(/^@/, "")
+      if (!from.includes("."))
+        throw new ApiError(`${from || "That"} does not look like a domain, such as acme.com.`, 400)
+      const subject = b.subject.trim().toLowerCase()
+      if (routines.some((r) => r.from === from && (r.subject ?? "") === subject))
+        throw new ApiError("there is already a routine for this mail", 409)
+      const folders = JSON.parse(sessionStorage.getItem("cockatoo.mock.folders") ?? "[]") as SaveFolder[]
+      const r: Routine = {
+        id: Math.max(0, ...routines.map((x) => x.id)) + 1,
+        from,
+        subject: subject || undefined,
+        action: "save",
+        folderId: b.folderId,
+        path: b.path,
+        dated: b.dated || undefined,
+        createdAt: new Date().toISOString(),
+        folderName: folders.find((f) => f.id === b.folderId)?.name,
+        missing: false,
+      }
+      sessionStorage.setItem(ROUTINES_KEY, JSON.stringify([...routines, r]))
+      return r as T
+    }
+    if (method === "DELETE") {
+      const id = Number(path.split("/").pop())
+      sessionStorage.setItem(ROUTINES_KEY, JSON.stringify(routines.filter((r) => r.id !== id)))
+      return undefined as T
+    }
   }
   if (method === "POST" && path === "/api/messages/done") {
     const b = JSON.parse(init!.body as string) as {
@@ -581,26 +812,18 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
         uidValidity: number
         uid: number
       }[]
-      const messages = keys.map((key, i) =>
-        i % 3 === 2
+      const all = [...mockInbox(load(), true).messages, ...mockOlder(load())]
+      const messages = keys.map((key, i) => {
+        const m = all.find((x) => mockKey(x) === mockKey(key))
+        const about = { key, subject: m?.subject ?? "", from: m?.fromAddr ?? "", receivedAt: m?.receivedAt ?? "" }
+        return /invoice|attached/i.test(about.subject)
           ? {
-              key,
-              subject: "Lunch on Friday?",
-              files: [],
-              problem: "The message has no attachments.",
-            }
-          : {
-              key,
-              subject: "Your invoice",
-              files: [
-                {
-                  path: `${dir}\\${i === 0 ? "invoice.pdf" : `invoice (${i + 1}).pdf`}`,
-                  bytes: 48213,
-                },
-              ],
+              ...about,
+              files: [{ path: `${dir}\\${i === 0 ? "invoice.pdf" : `invoice (${i + 1}).pdf`}`, bytes: 48213 }],
               skipped: i === 0 ? ["a picture shown in the message itself (logo.png)"] : undefined,
-            },
-      )
+            }
+          : { ...about, files: [], problem: "The message has no attachments." }
+      })
       const handled = loadHandled()
       for (const m of messages) {
         if (!m.files.length) continue
@@ -668,18 +891,25 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
             },
           ]
         : []),
-      ...(unread[2]
+      ...(unread[0]
         ? [
             {
-              message: unread[2],
+              message: {
+                ...unread[0],
+                uid: 2,
+                fromName: "Lindiwe Khumalo",
+                fromAddr: "lindiwe@example.com",
+                subject: "Quote for the garden wall",
+                receivedAt: new Date(Date.now() - 26 * 3_600_000).toISOString(),
+              },
               priority: "today",
-              reason: "Check the invoice before it is due on Friday.",
+              reason: "Lindiwe sent the quote you asked for and needs a yes by Friday.",
               overdue: false,
               signals: {
-                toYou: false,
-                ccYou: true,
+                toYou: true,
+                ccYou: false,
                 repliesToYou: false,
-                wrote: 0,
+                wrote: 2,
                 automated: false,
               },
             },

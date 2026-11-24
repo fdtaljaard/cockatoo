@@ -152,22 +152,31 @@ func (s *Service) ApplyAction(ctx context.Context, id int64, req ActionRequest) 
 		return ActionOutcome{}, err
 	}
 
+	desc := describe(req, items, a.Email)
+	return s.moveAndAudit(ctx, id, a.Email, login, state.UIDValidity, req.Kind, req.Criteria, desc, items)
+}
+
+// moveAndAudit moves messages of one account's inbox to Trash or Spam and audits it: the record
+// of what and why is written before anything moves, and what happened after. Only messages the
+// server confirms have left the inbox are taken out of the copy. validity is the UID validity the
+// messages were read with; a mailbox that has changed since is left alone.
+func (s *Service) moveAndAudit(ctx context.Context, id int64, email string, login imap.Login, validity uint32,
+	kind string, criteria store.Criteria, desc string, items []store.Message) (ActionOutcome, error) {
 	m, err := s.openMover(ctx, s.server, login)
 	if err != nil {
 		return ActionOutcome{}, explainMail(err)
 	}
 	defer m.Close()
-	if m.UIDValidity() != state.UIDValidity {
+	if m.UIDValidity() != validity {
 		return ActionOutcome{}, &ConflictError{"The mailbox has changed since cockatoo last read it. Nothing was changed; let it check again."}
 	}
-	folder, err := m.Folder(destinations[req.Kind])
+	folder, err := m.Folder(destinations[kind])
 	if err != nil {
 		return ActionOutcome{}, err
 	}
 
-	desc := describe(req, items, a.Email)
 	actionID, err := s.st.StartAction(ctx, store.ActionStart{
-		AccountID: id, AccountEmail: a.Email, Kind: req.Kind, Criteria: req.Criteria,
+		AccountID: id, AccountEmail: email, Kind: kind, Criteria: criteria,
 		Description: desc, Source: "you", Folder: folder,
 	}, items)
 	if err != nil {
@@ -202,7 +211,7 @@ func (s *Service) ApplyAction(ctx context.Context, id int64, req ActionRequest) 
 				moved = append(moved, u)
 			}
 		}
-		if err := s.st.RemoveMessages(ctx, id, state.UIDValidity, moved); err != nil {
+		if err := s.st.RemoveMessages(ctx, id, validity, moved); err != nil {
 			moveErr = errors.Join(moveErr, err)
 		}
 	} else {

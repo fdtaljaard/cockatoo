@@ -1,31 +1,76 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { ChevronRight, Folder, FolderPlus } from "lucide-react"
 
-import { api, type FolderBrowse, type MessageKey, type SaveFolder, type SaveResult } from "@/api"
+import {
+  api,
+  type FolderBrowse,
+  type MessageKey,
+  type Routine,
+  type RoutineMatch,
+  type SaveFolder,
+  type SaveResult,
+} from "@/api"
+import { RoutineOffer } from "@/components/routine-offer"
 import { SaveFolderForm } from "@/components/save-folder-form"
+import { domainOf } from "@/lib/routine"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Spinner } from "@/components/ui/spinner"
+import { Working } from "@/components/working"
 
 type Step =
+  | { kind: "opening" }
   | { kind: "choose" }
   | { kind: "browse"; at: FolderBrowse }
   | { kind: "saving"; at: FolderBrowse }
-  | { kind: "done"; result: SaveResult }
+  | { kind: "done"; result: SaveResult; at: FolderBrowse }
 
 const pad = (n: number) => String(n).padStart(2, "0")
 
 // Saves the attachments of chosen messages: pick a save folder, go into or make a subfolder (the
 // month and the day are one click), save. Works for any list that can hand it message keys.
-export function SaveDialog({ messages, onClose }: { messages: MessageKey[]; onClose: (saved: boolean) => void }) {
+// Opened for a routine (start), it goes straight to the routine's folder, making the month's or
+// day's folder when it is not there yet, and you press Save.
+export function SaveDialog({
+  messages,
+  start,
+  onClose,
+}: {
+  messages: MessageKey[]
+  start?: RoutineMatch
+  onClose: (saved: boolean) => void
+}) {
   const [folders, setFolders] = useState<SaveFolder[] | null>(null)
-  const [step, setStep] = useState<Step>({ kind: "choose" })
+  const [step, setStep] = useState<Step>(start ? { kind: "opening" } : { kind: "choose" })
   const [error, setError] = useState<string | null>(null)
   const [newName, setNewName] = useState("")
 
   useEffect(() => {
     api.saveFolders().then(setFolders, (e: Error) => setError(e.message))
   }, [])
+
+  // A routine's place: its folder, with the mail's month or day made in it when needed.
+  useEffect(() => {
+    if (!start) return
+    const open = start.name
+      ? api.makeSubfolder(start.folderId, start.parent, start.name)
+      : api.browseFolder(start.folderId, start.parent)
+    open.then(
+      (at) => setStep({ kind: "browse", at }),
+      (e: Error) => {
+        setError(`The routine's folder could not be opened: ${e.message} Choose where to save instead.`)
+        setStep({ kind: "choose" })
+      },
+    )
+  }, [start])
 
   async function go(folderId: number, path: string) {
     setError(null)
@@ -51,7 +96,7 @@ export function SaveDialog({ messages, onClose }: { messages: MessageKey[]; onCl
     setError(null)
     setStep({ kind: "saving", at })
     try {
-      setStep({ kind: "done", result: await api.saveAttachments(at.folderId, at.path, messages) })
+      setStep({ kind: "done", result: await api.saveAttachments(at.folderId, at.path, messages), at })
     } catch (e) {
       setError((e as Error).message)
       setStep({ kind: "browse", at })
@@ -82,9 +127,16 @@ export function SaveDialog({ messages, onClose }: { messages: MessageKey[]; onCl
           </p>
         )}
 
+        {step.kind === "opening" && <Working>Opening the routine's folder…</Working>}
+        {step.kind === "saving" && (
+          <Working>
+            Reading {count} from your mailbox and saving the attachments…
+          </Working>
+        )}
+
         {step.kind === "choose" && (
           <div className="space-y-4">
-            {folders === null && !error && <p className="text-sm text-muted-foreground">Opening…</p>}
+            {folders === null && !error && <Working>Opening…</Working>}
             {folders && folders.length > 0 && (
               <ul className="divide-y rounded-lg border">
                 {folders.map((f) => (
@@ -120,11 +172,19 @@ export function SaveDialog({ messages, onClose }: { messages: MessageKey[]; onCl
         {(step.kind === "browse" || step.kind === "saving") && (
           <div className="space-y-4">
             <nav aria-label="Where" className="flex flex-wrap items-center gap-1 text-sm">
-              <button type="button" className="font-medium underline-offset-4 hover:underline" onClick={() => setStep({ kind: "choose" })}>
+              <button
+                type="button"
+                className="font-medium underline-offset-4 hover:underline"
+                onClick={() => setStep({ kind: "choose" })}
+              >
                 Folders
               </button>
               <ChevronRight aria-hidden className="size-3.5 text-muted-foreground" />
-              <button type="button" className="underline-offset-4 hover:underline" onClick={() => go(step.at.folderId, "")}>
+              <button
+                type="button"
+                className="underline-offset-4 hover:underline"
+                onClick={() => go(step.at.folderId, "")}
+              >
                 {step.at.name}
               </button>
               {step.at.path &&
@@ -190,7 +250,7 @@ export function SaveDialog({ messages, onClose }: { messages: MessageKey[]; onCl
           </div>
         )}
 
-        {step.kind === "done" && <SaveSummary result={step.result} />}
+        {step.kind === "done" && <SaveSummary result={step.result} at={step.at} offer={!start} />}
 
         <DialogFooter>
           {(step.kind === "browse" || step.kind === "saving") && (
@@ -199,11 +259,14 @@ export function SaveDialog({ messages, onClose }: { messages: MessageKey[]; onCl
                 Cancel
               </Button>
               <Button onClick={() => save(step.at)} disabled={step.kind === "saving"}>
-                {step.kind === "saving" ? "Saving…" : `Save to ${step.at.path ? step.at.path.split("/").pop() : step.at.name}`}
+                {step.kind === "saving" && <Spinner />}
+                {step.kind === "saving"
+                  ? "Saving…"
+                  : `Save to ${step.at.path ? step.at.path.split("/").pop() : step.at.name}`}
               </Button>
             </>
           )}
-          {step.kind === "choose" && (
+          {(step.kind === "choose" || step.kind === "opening") && (
             <Button variant="ghost" onClick={() => onClose(false)}>
               Cancel
             </Button>
@@ -215,9 +278,20 @@ export function SaveDialog({ messages, onClose }: { messages: MessageKey[]; onCl
   )
 }
 
-// What was saved, and what was not and why, per message.
-function SaveSummary({ result }: { result: SaveResult }) {
+// What was saved, and what was not and why, per message; then, for each sender whose files were
+// saved and that no routine covers yet, the offer to do this every time.
+function SaveSummary({ result, at, offer }: { result: SaveResult; at: FolderBrowse; offer: boolean }) {
   const name = (p: string) => p.split(/[\\/]/).pop()
+  const [routines, setRoutines] = useState<Routine[] | null>(null)
+  useEffect(() => {
+    if (offer) api.routines().then(setRoutines, () => setRoutines([]))
+  }, [offer])
+  const covered = (from: string) => routines?.some((r) => !r.subject && (r.from === from || r.from === domainOf(from)))
+  const senders = routines
+    ? [...new Set(result.messages.filter((m) => m.files.length > 0 && m.from).map((m) => m.from))].filter(
+        (f) => !covered(f),
+      )
+    : []
   return (
     <div className="space-y-3 text-sm">
       <p>
@@ -243,6 +317,9 @@ function SaveSummary({ result }: { result: SaveResult }) {
           </li>
         ))}
       </ul>
+      {senders.slice(0, 3).map((f) => (
+        <RoutineOffer key={f} at={at} from={f} />
+      ))}
     </div>
   )
 }

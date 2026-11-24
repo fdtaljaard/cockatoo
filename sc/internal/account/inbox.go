@@ -15,6 +15,7 @@ const Window = 24 * time.Hour
 type InboxList struct {
 	Since    time.Time       `json:"since"`
 	Messages []store.Message `json:"messages"`
+	Waiting  []store.Message `json:"waiting"` // mail of the last 60 days a routine is waiting on, newest first
 }
 
 // StoredInbox returns the last 24 hours from the copy, without asking the mail server.
@@ -27,7 +28,34 @@ func (s *Service) StoredInbox(ctx context.Context) (InboxList, error) {
 	if err := s.AttachHandled(ctx, msgs); err != nil {
 		return InboxList{}, err
 	}
-	return InboxList{Since: since, Messages: msgs}, nil
+	waiting, err := s.attachRoutines(ctx, msgs)
+	if err != nil {
+		return InboxList{}, err
+	}
+	return InboxList{Since: since, Messages: msgs, Waiting: waiting}, nil
+}
+
+// SearchResult is what a search of the inbox found.
+type SearchResult struct {
+	Query    string          `json:"query"`
+	Messages []store.Message `json:"messages"`
+	More     bool            `json:"more"` // there were more than store.SearchLimit; the newest are shown
+}
+
+// Search finds mail in the copy of the whole inbox (not only the last 24 hours) by sender or
+// subject, with what the user did about each and the routine for it, as the Inbox list shows them.
+func (s *Service) Search(ctx context.Context, query string, accountID int64) (SearchResult, error) {
+	msgs, more, err := s.st.SearchMessages(ctx, query, accountID)
+	if err != nil {
+		return SearchResult{}, err
+	}
+	if err := s.AttachHandled(ctx, msgs); err != nil {
+		return SearchResult{}, err
+	}
+	if err := s.markRoutines(ctx, msgs); err != nil {
+		return SearchResult{}, err
+	}
+	return SearchResult{Query: query, Messages: msgs, More: more}, nil
 }
 
 // Overview is the shape of one account's whole inbox, from the copy.
