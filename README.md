@@ -1,0 +1,2 @@
+# cockatoo
+Cockatoo email client
