@@ -6,17 +6,23 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"cockatoo/internal/account"
+	"cockatoo/internal/ai"
 	"cockatoo/internal/store"
 )
 
 // Handler builds the HTTP routes: /api/* for JSON, everything else is the single-page UI.
 // version is the build stamp, shown in /api/health so "which build am I looking at" is never a guess.
-func Handler(st *store.Store, ui fs.FS, version string) http.Handler {
+func Handler(st *store.Store, accounts *account.Service, assistant *ai.Service, ui fs.FS, version string) http.Handler {
 	mux := http.NewServeMux()
+	accountRoutes(mux, accounts)
+	aiRoutes(mux, assistant)
 
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now(), "version": version})
@@ -58,6 +64,35 @@ func spa(ui fs.FS) http.Handler {
 		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// LocalOnly refuses requests that did not come from the app's own page. The server listens on
+// 127.0.0.1 only, but a web page on any site, open in a browser on this computer, can still
+// send requests to that address. Two checks stop it: the Host header must name this computer
+// (a site that points its own name at 127.0.0.1 fails here), and a request that says where it
+// came from (Origin) must have come from this same address.
+func LocalOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !loopbackHost(r.Host) {
+			writeError(w, http.StatusForbidden, fmt.Errorf("cockatoo only answers on this computer, not on %q", r.Host))
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			if u, err := url.Parse(origin); err != nil || u.Host != r.Host {
+				writeError(w, http.StatusForbidden, fmt.Errorf("cockatoo does not answer requests from %s", origin))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func loopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

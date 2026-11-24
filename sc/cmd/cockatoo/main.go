@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"cockatoo/internal/account"
+	"cockatoo/internal/ai"
 	"cockatoo/internal/api"
 	"cockatoo/internal/store"
 	"cockatoo/web"
@@ -67,7 +69,7 @@ func run(port int, dataDir string, openWindow bool) (err error) {
 
 	presence := &api.Presence{}
 	srv := &http.Server{
-		Handler:           api.WithEvents(api.Handler(st, web.Dist(), version), presence),
+		Handler:           api.LocalOnly(api.WithEvents(api.Handler(st, account.New(st), ai.NewService(st), web.Dist(), version), presence)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

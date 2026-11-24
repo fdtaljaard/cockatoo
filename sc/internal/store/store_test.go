@@ -25,8 +25,8 @@ func TestOpenMigratesAndReopens(t *testing.T) {
 		if st.DuckDBVersion == "" {
 			t.Error("no DuckDB version")
 		}
-		if len(st.Tables) != 2 { // schema_version, setting
-			t.Errorf("tables %v, want schema_version and setting", st.Tables)
+		if len(st.Tables) != 4 { // account, ai_provider, schema_version, setting
+			t.Errorf("tables %v, want account, ai_provider, schema_version and setting", st.Tables)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatal(err)

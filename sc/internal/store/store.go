@@ -46,6 +46,27 @@ var migrations = []string{
 	   key   VARCHAR PRIMARY KEY,
 	   value VARCHAR NOT NULL
 	 );`,
+	// 2: mail accounts. secret is the account's password, encrypted by internal/secret before it
+	// reaches the store; the plain password is never written to this file.
+	`CREATE SEQUENCE IF NOT EXISTS seq_account START 1;
+	 CREATE TABLE IF NOT EXISTS account (
+	   id         INTEGER PRIMARY KEY DEFAULT nextval('seq_account'),
+	   provider   VARCHAR NOT NULL,
+	   name       VARCHAR NOT NULL,
+	   email      VARCHAR NOT NULL UNIQUE,
+	   secret     BLOB NOT NULL,
+	   created_at TIMESTAMP NOT NULL
+	 );`,
+	// 3: AI providers, one row each (Anthropic first). secret is the API key, encrypted by
+	// internal/secret; key_hint is the start and end of the key, to show which one is saved.
+	`CREATE TABLE IF NOT EXISTS ai_provider (
+	   provider   VARCHAR PRIMARY KEY,
+	   enabled    BOOLEAN NOT NULL,
+	   model      VARCHAR NOT NULL,
+	   secret     BLOB,
+	   key_hint   VARCHAR,
+	   updated_at TIMESTAMP NOT NULL
+	 );`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
