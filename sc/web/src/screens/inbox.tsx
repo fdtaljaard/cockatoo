@@ -8,11 +8,24 @@ import { cn } from "@/lib/utils"
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; list: InboxList }
 
+// Which account the Inbox shows, kept between visits on this computer.
+const SHOWN_KEY = "cockatoo.inbox.account"
+
 // The last 24 hours of every account's inbox, newest first, read from cockatoo's copy. A sync
-// starts when the screen opens; the list follows it as new mail arrives in the copy.
+// starts when the screen opens; the list follows it as new mail arrives in the copy. With several
+// accounts, buttons above the list show all of them together or one at a time.
 export function InboxScreen({ accounts }: { accounts: Account[] }) {
   const [load, setLoad] = useState<Load>({ kind: "loading" })
+  const [shown, setShown] = useState<number | "all">(() => {
+    const saved = Number(localStorage.getItem(SHOWN_KEY))
+    return accounts.some((a) => a.id === saved) ? saved : "all"
+  })
   const sync = useSync()
+
+  function show(which: number | "all") {
+    setShown(which)
+    localStorage.setItem(SHOWN_KEY, String(which))
+  }
 
   useEffect(() => {
     api
@@ -23,8 +36,12 @@ export function InboxScreen({ accounts }: { accounts: Account[] }) {
 
   const names = new Map(accounts.map((a) => [a.id, a.name]))
   const severalAccounts = accounts.length > 1
+  // An account removed since it was chosen falls back to all of them.
+  const current = shown !== "all" && accounts.some((a) => a.id === shown) ? shown : "all"
   const list = load.kind === "ready" ? load.list : null
-  const unread = list ? list.messages.filter((m) => !m.seen).length : 0
+  const messages = list ? list.messages.filter((m) => current === "all" || m.accountId === current) : []
+  const unread = messages.filter((m) => !m.seen).length
+  const unreadOf = (id: number) => list?.messages.filter((m) => m.accountId === id && !m.seen).length ?? 0
   const running = sync.status?.running ?? true
 
   return (
@@ -33,13 +50,33 @@ export function InboxScreen({ accounts }: { accounts: Account[] }) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Last 24 hours{list && list.messages.length > 0 ? ` · ${unread} unread` : ""}
+            Last 24 hours{messages.length > 0 ? ` · ${unread} unread` : ""}
           </p>
         </div>
         <Button variant="outline" onClick={sync.start} disabled={running}>
           {running ? "Checking…" : "Refresh"}
         </Button>
       </div>
+
+      {severalAccounts && (
+        <div className="mt-4 flex flex-wrap gap-1" role="group" aria-label="Which account">
+          <Button variant={current === "all" ? "secondary" : "ghost"} aria-pressed={current === "all"} onClick={() => show("all")}>
+            All
+            {list && <Count n={list.messages.filter((m) => !m.seen).length} />}
+          </Button>
+          {accounts.map((a) => (
+            <Button
+              key={a.id}
+              variant={current === a.id ? "secondary" : "ghost"}
+              aria-pressed={current === a.id}
+              onClick={() => show(a.id)}
+            >
+              {a.name}
+              {list && <Count n={unreadOf(a.id)} />}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <div className="mt-3">
         <SyncLine status={sync.status} error={sync.error} />
@@ -52,19 +89,23 @@ export function InboxScreen({ accounts }: { accounts: Account[] }) {
         </p>
       )}
 
-      {list && list.messages.length === 0 && (
+      {list && messages.length === 0 && (
         <p className="mt-10 text-center text-sm text-muted-foreground">
-          {running ? "Checking for mail…" : "No mail in the last 24 hours."}
+          {running
+            ? "Checking for mail…"
+            : current === "all"
+              ? "No mail in the last 24 hours."
+              : `No mail in the last 24 hours for ${names.get(current)}.`}
         </p>
       )}
 
-      {list && list.messages.length > 0 && (
+      {messages.length > 0 && (
         <ul className="mt-4 divide-y border-y">
-          {list.messages.map((m) => (
+          {messages.map((m) => (
             <Row
               key={`${m.accountId}-${m.uidValidity}-${m.uid}`}
               message={m}
-              account={severalAccounts ? names.get(m.accountId) : undefined}
+              account={severalAccounts && current === "all" ? names.get(m.accountId) : undefined}
             />
           ))}
         </ul>
@@ -106,4 +147,15 @@ function when(iso: string): string {
   const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   const today = new Date()
   return d.toDateString() === today.toDateString() ? time : `Yesterday ${time}`
+}
+
+// The unread count on an account button; nothing when there is none.
+function Count({ n }: { n: number }) {
+  if (n === 0) return null
+  return (
+    <span className="tabular-nums text-muted-foreground">
+      {n.toLocaleString()}
+      <span className="sr-only"> unread</span>
+    </span>
+  )
 }
