@@ -20,7 +20,15 @@ type Message struct {
 	Subject     string      `json:"subject"`
 	ReceivedAt  time.Time   `json:"receivedAt"` // UTC
 	Seen        bool        `json:"seen"`
+	Handled     *Handled    `json:"handled,omitempty"` // what the user did about it; filled where it is shown
 	Unsubscribe Unsubscribe `json:"-"`
+	// What tells mail that needs a reply from mail to skim; kept, not shown as they are.
+	To            []string `json:"-"`
+	Cc            []string `json:"-"`
+	InReplyTo     string   `json:"-"`
+	ListID        string   `json:"-"`
+	Precedence    string   `json:"-"`
+	AutoSubmitted string   `json:"-"`
 }
 
 // Unsubscribe is how a sender's mail says it can be unsubscribed from. URL is https only and
@@ -130,20 +138,24 @@ func (s *Store) AddMessages(ctx context.Context, accountID int64, msgs []Message
 		values := make([]string, len(part))
 		args := make([]any, 0, len(part)*10)
 		for i, m := range part {
-			values[i] = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+			values[i] = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 			args = append(args, accountID, int64(m.UIDValidity), int64(m.UID), m.MessageID, m.FromName,
-				strings.ToLower(m.FromAddr), m.Subject, m.ReceivedAt.UTC(), m.Seen,
-				nullable(m.Unsubscribe.URL), nullable(m.Unsubscribe.Mailto), m.Unsubscribe.OneClick, now)
+				strings.ToLower(m.FromAddr), joinAddrs(m.To), joinAddrs(m.Cc), nullable(m.InReplyTo), m.Subject,
+				m.ReceivedAt.UTC(), m.Seen, nullable(m.Unsubscribe.URL), nullable(m.Unsubscribe.Mailto), m.Unsubscribe.OneClick,
+				nullable(m.ListID), nullable(m.Precedence), nullable(m.AutoSubmitted), now)
 		}
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO message (account_id, uid_validity, uid, message_id, from_name, from_addr, subject, received_at, seen,
-			   unsub_url, unsub_mailto, unsub_one_click, refreshed_at)
+			`INSERT INTO message (account_id, uid_validity, uid, message_id, from_name, from_addr, to_addrs, cc_addrs,
+			   in_reply_to, subject, received_at, seen, unsub_url, unsub_mailto, unsub_one_click, list_id, precedence,
+			   auto_submitted, refreshed_at)
 			 VALUES `+strings.Join(values, ", ")+`
 			 ON CONFLICT (account_id, uid_validity, uid) DO UPDATE SET
 			   message_id = excluded.message_id, from_name = excluded.from_name, from_addr = excluded.from_addr,
+			   to_addrs = excluded.to_addrs, cc_addrs = excluded.cc_addrs, in_reply_to = excluded.in_reply_to,
 			   subject = excluded.subject, received_at = excluded.received_at, seen = excluded.seen,
 			   unsub_url = excluded.unsub_url, unsub_mailto = excluded.unsub_mailto,
-			   unsub_one_click = excluded.unsub_one_click, refreshed_at = excluded.refreshed_at`, args...)
+			   unsub_one_click = excluded.unsub_one_click, list_id = excluded.list_id, precedence = excluded.precedence,
+			   auto_submitted = excluded.auto_submitted, refreshed_at = excluded.refreshed_at`, args...)
 		if err != nil {
 			return fmt.Errorf("save messages of account %d: %w", accountID, err)
 		}
@@ -259,4 +271,26 @@ func (s *Store) RemoveMessages(ctx context.Context, accountID int64, uidValidity
 		}
 	}
 	return nil
+}
+
+// joinAddrs stores a list of addresses as one lower-case, comma-separated value.
+func joinAddrs(addrs []string) any {
+	if len(addrs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if a = strings.ToLower(strings.TrimSpace(a)); a != "" && !strings.Contains(a, ",") {
+			out = append(out, a)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+// splitAddrs reads a value stored by joinAddrs.
+func splitAddrs(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
 }

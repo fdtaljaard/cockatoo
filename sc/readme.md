@@ -97,7 +97,9 @@ when either screen opens (and on **Refresh**) and runs in the background:
 
 - **First sync.** It reads every message's headers, which for a large inbox can take a minute or more.
   Until it finishes, Clean up says how far it has got; its figures cover what has been read so far.
-- **Headers only.** Sender, subject, arrival time and whether it is read. No message bodies.
+- **Headers only.** Sender, subject, arrival time and whether it is read. Message bodies are not copied:
+  one is read only when you ask for something that needs it (the first lines, for the AI; attachments,
+  when you save them) and is not kept.
 - **Read-only.** The inbox is opened read-only over IMAP, so nothing is marked as read.
 - **Inbox only.** Counts cover mail in the inbox, one per message across all Gmail tabs, so they can
   differ from Gmail's own numbers.
@@ -107,6 +109,46 @@ when either screen opens (and on **Refresh**) and runs in the background:
   give is skipped and counted, and the sync carries on.
 - **Several accounts.** One Inbox list, each row naming its account; Clean up shows one account at a
   time, chosen with the buttons above it.
+
+## What needs you now (AI)
+
+On **Inbox**, **Ask AI** asks Claude which unread mail needs a reply or an action from you, and which
+you can skim, for the account buttons' choice (All or one account). It answers with a sentence and a
+short list, **Now** and **Today**, each with what you have to do and the facts behind it ("Answers your
+message · To you · You've written to them 14 times").
+
+**First, without the AI.** Cockatoo sorts your unread mail of the last 30 days from facts it reads from
+the headers and your **Sent** folder (synced with the inbox, headers only):
+
+- sent to you directly, or only on CC, or to a list;
+- whether it answers a message you sent (its In-Reply-To is one of your sent Message-IDs);
+- how often you have written to the sender (your aliases count as you: they are the From of your sent mail);
+- whether you already replied to it;
+- list or automated mail: `List-Id`, `List-Unsubscribe`, `Precedence: bulk/list/junk`,
+  `Auto-Submitted`, or a no-reply / notifications sender.
+
+Mail you already answered, saved the attachments of or marked done is left out, and so is automated mail from someone you never write to that
+does not answer you. Only on that evidence: a reply to your own mail, or mail from someone you write to,
+is never left out, even when it comes through a list. How much was left out is shown under the answer.
+
+**Then the AI**, for what is left (newest first, at most 80): the sender, subject, date, the facts above,
+and, if **Include the first lines of each message** is ticked, the first 600 characters of what the
+sender wrote (read with a peek, so nothing is marked read; quoted replies cut off). The text is sent to
+Anthropic with your key and not kept by cockatoo; the record keeps only that text was sent and how much.
+
+- **What comes back.** A fixed answer shape (structured outputs). Code keeps only picks that name a
+  message that was sent, once each; an answer that cannot be read is an error, never "nothing needs
+  you". Senders, subjects and text are written by strangers: they go in a marked data block, and
+  nothing in an answer acts.
+- **Kept.** The answer shows again when you come back, with mail read since taken out; **Ask again**
+  asks anew. Every request is recorded, insert-only, in `ai_request` (when, which accounts, model,
+  tokens, how much was left out, whether text was sent, the answer or the error) and `ai_request_item`
+  (each message sent).
+- **Cost.** Billed to your Anthropic key; the panel shows the tokens each answer took. It waits while
+  cockatoo is checking your mail, because read states and the Sent folder are brought up to date at the
+  end of that check.
+- **What it cannot know.** Whether you replied from another app before cockatoo read your Sent folder,
+  and anything in a message beyond its first lines.
 
 ## Clean up: Trash, Spam and Unsubscribe
 
@@ -128,16 +170,65 @@ and, when that sender's mail says how, **Unsubscribe**. **Can unsubscribe** list
   a link to the sender's own page (or an email to them), opened by your click. Cockatoo does not fetch or
   send anything itself yet.
 
+## Save attachments
+
+**Folders** holds the places on disk attachments go to: a name and the path of a folder that already
+exists, for example *Expenses* at `C:\Users\you\Documents\Expenses` (in File Explorer, right-click the
+folder and choose **Copy as path**). Removing one only removes it from cockatoo; the folder and its files
+stay.
+
+In the **Inbox**, tick one or more messages (or the box above the list for all of them) and press **Save
+attachments**:
+
+1. Choose a folder. The ones whose path is no longer there are shown but cannot be chosen.
+2. Its subfolders are listed; open one, or make one. This month (`2026-11`) and today (`2026-11-24`) are
+   one click each; any other name can be typed. The bar at the top goes back up.
+3. **Save to ...** saves every attachment of the chosen messages there, and says what was saved and what
+   was not, per message.
+
+- **What is saved.** Files sent as attachments, and named files shown in the message (a PDF, say).
+  Pictures that are part of the message itself (a logo, a signature) are left out and listed as such. A
+  forwarded email is saved as an `.eml` file.
+- **Never overwritten.** A file with the same name gets ` (2)`, ` (3)` and so on. Names are made safe for
+  Windows (no `\ / : * ? " < > |`, no `CON` or `NUL`).
+- **Marked as from the internet.** Each file carries the same mark a browser download does, so Windows and
+  Office treat it with the same care (Protected View, SmartScreen).
+- **Inside the folder only.** Subfolder names cannot climb out (`..`), and cockatoo refuses to save through
+  a shortcut folder (a symbolic link or junction) inside it.
+- **Read-only.** Messages are read with a peek, so nothing is marked as read. A message over 50 MB is
+  skipped and said so. A message that has left the inbox since the last sync is skipped.
+- **Audited.** Each save is recorded like the other actions (below), with every file written.
+
+## Done: mail you have dealt with
+
+Once you have dealt with a message, its row in the Inbox turns green and says how:
+
+- **Saved 2 files to C:\...\Expenses\2026-11**, after you saved its attachments (the folders they went
+  to are listed);
+- **Replied**, when the Sent folder holds your reply to it (from Gmail or anywhere else; it shows after
+  the next sync);
+- **Done**, when you pressed **Done** on the row, or ticked several and pressed **Mark done**. **Not done**
+  takes it back.
+
+The header counts them ("3 done"). Mail you have dealt with drops out of **What needs you now**, and its
+Done button is on each of the AI's picks too.
+
+Done is cockatoo's own mark: nothing changes in Gmail, and the message stays unread and in the inbox.
+Nothing is stored beside the audit: saved, done and not done are read from it (the latest mark wins),
+and replied from the copy of the Sent folder. A message is known by its UID, so if Gmail ever renumbers
+the inbox (rare), the marks on older mail no longer show; the audit still holds them.
+
 ## Audit
 
 Every action is recorded in DuckDB before anything changes and again after, insert-only:
 
 - `action`: when, which account (by address, so the record outlives the account), what (`trash`, `spam`,
-  `unsubscribe`), the criteria (`{"kind":"sender","address":...}` or `{"kind":"year","year":...}`), the
+  `unsubscribe`, `save_attachments`, `done`, `not_done`), the criteria (`{"kind":"sender","address":...}` or `{"kind":"year","year":...}`), the
   description you confirmed, who asked (`you`; later `ai`), the folder used, how many messages matched.
 - `action_item`: each message the action was for: UID, Message-ID, sender, subject, date.
 - `action_result`: when it finished, `done`, `partial`, `failed` or `opened`, how many moved, which did
   not, and the error.
+- `action_file`: for a save, each file written: the message's UID, the full path and the size.
 
 `GET /api/audit` returns the latest 200. A page to read it comes later. The senders and subjects of moved
 mail stay in the audit, unencrypted, after the mail itself is gone.
@@ -211,8 +302,11 @@ Anthropic, so they need no account, no key and no network.
 cmd/cockatoo/     main: flags, DuckDB path, HTTP listener, the app window
 internal/api/     HTTP JSON routes and the embedded single-page UI
 internal/account/ use cases for mail accounts: test, save, remove; Google sign-in; the sync, overview and actions
+internal/triage/  what needs you now: the unread mail sent to the AI, its answer checked and recorded
 internal/ai/      the Anthropic client, and the AI settings that hold the key and turn it on
-internal/mail/    IMAP: sign in (password or Google token), count, list and read headers; move to Trash or Spam
+internal/mail/    IMAP: sign in (password or Google token), count, list and read headers; move to Trash or Spam;
+                  read a message's text or its attachments
+internal/files/   save folders on disk: safe names, subfolders, writing a file without overwriting
 internal/secret/  encrypts passwords with Windows DPAPI before they are stored
 internal/store/   DuckDB: schema migrations, single writer, queries
 web/              React + TypeScript + Tailwind + shadcn/ui; web/dist is embedded by web/embed.go

@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button"
 import { AccountsScreen } from "@/screens/accounts"
 import { AIScreen } from "@/screens/ai"
 import { CleanupScreen } from "@/screens/cleanup"
+import { FoldersScreen } from "@/screens/folders"
 import { InboxScreen } from "@/screens/inbox"
 import { SetupScreen } from "@/screens/setup"
 
 type Accounts = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; list: Account[] }
-type View = "inbox" | "cleanup" | "accounts" | "ai"
+type View = "inbox" | "cleanup" | "folders" | "accounts" | "ai"
 
 export default function App() {
   // Keep one event stream open for as long as the page is shown. The exe stops a few
@@ -48,6 +49,9 @@ export default function App() {
           <NavButton current={view === "cleanup"} onClick={() => setView("cleanup")}>
             Clean up
           </NavButton>
+          <NavButton current={view === "folders"} onClick={() => setView("folders")}>
+            Folders
+          </NavButton>
           <NavButton current={view === "accounts"} onClick={() => setView("accounts")}>
             Mail accounts
           </NavButton>
@@ -59,6 +63,7 @@ export default function App() {
 
       <main className="flex-1 pb-16 pt-6">
         {view === "ai" && <AIScreen />}
+        {view === "folders" && <FoldersScreen />}
 
         {view !== "ai" && accounts.kind === "loading" && <p className="text-sm text-muted-foreground">Opening…</p>}
 
@@ -81,7 +86,7 @@ export default function App() {
         )}
 
         {view === "inbox" && accounts.kind === "ready" && accounts.list.length > 0 && (
-          <InboxScreen accounts={accounts.list} />
+          <InboxScreen accounts={accounts.list} onGoToAI={() => setView("ai")} />
         )}
 
         {view === "accounts" && accounts.kind === "ready" && accounts.list.length > 0 && adding && (

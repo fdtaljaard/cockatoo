@@ -16,6 +16,7 @@ type Destination string
 const (
 	Trash Destination = "trash"
 	Spam  Destination = "spam"
+	Sent  Destination = "sent" // only read, never moved to
 )
 
 // Folder is one mailbox as the server lists it.
@@ -28,10 +29,11 @@ type Folder struct {
 // server does not mark them (localised names included). Never a folder that is not there:
 // cockatoo does not create folders.
 var (
-	destinationAttr = map[Destination]string{Trash: `\Trash`, Spam: `\Junk`}
+	destinationAttr = map[Destination]string{Trash: `\Trash`, Spam: `\Junk`, Sent: `\Sent`}
 	destinationName = map[Destination][]string{
 		Trash: {"[Gmail]/Trash", "[Gmail]/Bin", "[Google Mail]/Trash", "[Google Mail]/Bin"},
 		Spam:  {"[Gmail]/Spam", "[Google Mail]/Spam"},
+		Sent:  {"[Gmail]/Sent Mail", "[Google Mail]/Sent Mail"},
 	}
 )
 

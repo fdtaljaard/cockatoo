@@ -9,7 +9,9 @@ import (
 
 	"cockatoo/internal/account"
 	"cockatoo/internal/ai"
+	"cockatoo/internal/files"
 	"cockatoo/internal/store"
+	"cockatoo/internal/triage"
 )
 
 // accountRoutes are the mail accounts. A password comes in on test and on add, and never goes out.
@@ -203,8 +205,10 @@ func accountID(r *http.Request) (int64, error) {
 func statusFor(err error) int {
 	var invalid *account.InvalidError
 	var aiInvalid *ai.InvalidError
+	var triageInvalid *triage.InvalidError
+	var filesInvalid *files.InvalidError
 	switch {
-	case errors.As(err, &invalid), errors.As(err, &aiInvalid):
+	case errors.As(err, &invalid), errors.As(err, &aiInvalid), errors.As(err, &triageInvalid), errors.As(err, &filesInvalid):
 		return http.StatusBadRequest
 	case errors.Is(err, ai.ErrOff), errors.Is(err, ai.ErrNoKey), errors.Is(err, account.ErrBusy):
 		return http.StatusConflict
@@ -212,7 +216,7 @@ func statusFor(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, store.ErrDuplicate):
+	case errors.Is(err, store.ErrDuplicate), errors.Is(err, store.ErrDuplicateFolder):
 		return http.StatusConflict
 	default:
 		return http.StatusBadGateway

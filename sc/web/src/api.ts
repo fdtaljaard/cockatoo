@@ -59,6 +59,16 @@ export interface MailMessage {
   subject: string
   receivedAt: string // UTC
   seen: boolean
+  handled?: Handled // what you have done about it; absent when nothing
+}
+
+// What you have done about a message, read from the audit and the Sent folder.
+export interface Handled {
+  savedTo?: string[] // the folders its attachments were saved in
+  savedFiles?: number
+  savedAt?: string
+  doneAt?: string // marked done, and not taken back since
+  replied?: boolean // the Sent folder holds a reply to it
 }
 
 // The last 24 hours of every account's inbox, newest first, from cockatoo's copy.
@@ -76,11 +86,12 @@ export interface SyncStatus {
 export interface AccountSync {
   accountId: number
   email: string
-  state: "waiting" | "listing" | "reading" | "done" | "failed"
+  state: "waiting" | "listing" | "reading" | "sent" | "done" | "failed"
   read: number // headers read so far in this sync
   toRead: number // headers this sync has to read
   skipped: number // messages the server could not give
   error?: string
+  sentError?: string // the Sent folder could not be read; the inbox is fine
 }
 
 // The shape of one account's whole inbox, from cockatoo's copy.
@@ -128,6 +139,81 @@ export interface ActionOutcome {
   moved: number
   notMoved: number
   error?: string
+}
+
+// A place on disk to save attachments to.
+export interface SaveFolder {
+  id: number
+  name: string
+  path: string
+  createdAt: string
+  missing: boolean // the path is no longer there
+}
+
+// A place inside a save folder, and the folders in it.
+export interface FolderBrowse {
+  folderId: number
+  name: string
+  root: string
+  path: string // relative, "/"-separated; "" is the save folder itself
+  full: string // the full path, to show
+  folders: string[]
+}
+
+// Names one message in cockatoo's copy.
+export interface MessageKey {
+  accountId: number
+  uidValidity: number
+  uid: number
+}
+
+// What saving attachments did.
+export interface SaveResult {
+  folder: string // the full path saved to
+  files: number
+  messages: {
+    key: MessageKey
+    subject: string
+    files: { path: string; bytes: number }[]
+    skipped?: string[]
+    problem?: string
+  }[]
+}
+
+// One message the AI says needs the user, with why.
+export interface TriagePick {
+  message: MailMessage
+  priority: "now" | "today"
+  reason: string
+  overdue: boolean // unread for longer than a day
+  // What cockatoo knows without the AI.
+  signals?: {
+    toYou: boolean
+    ccYou: boolean
+    repliesToYou: boolean
+    wrote: number
+    automated: boolean
+  }
+}
+
+// "What needs you now": the AI's last answer for a scope.
+export interface TriageResult {
+  id: number // 0 when nothing was sent (nothing unread)
+  askedAt: string
+  model?: string
+  summary: string
+  picks: TriagePick[]
+  sent: number
+  leftOut: number // over the limit, the oldest
+  leftAutomated: number // left out as automated or bulk, before the AI was asked
+  leftAnswered: number // left out: already answered
+  textSent: boolean // the first lines of each message went with it
+  textError?: string // the text could not be read; headers only
+  signalsPartial: boolean // the Sent folder is not read yet
+  partial: boolean // a mailbox was not completely read
+  dropped: number // picks read or gone since
+  inputTokens: number
+  outputTokens: number
 }
 
 // The AI settings. The API key is never sent back, only whether one is saved and a hint of it.
@@ -187,20 +273,68 @@ export const api = {
   listAccounts: () => request<Account[]>("/api/accounts"),
   // Signs in with the details as typed and counts the inbox. Saves nothing.
   testAccount: (input: AccountInput) =>
-    request<Inbox>("/api/accounts/test", { method: "POST", body: JSON.stringify(input) }),
+    request<Inbox>("/api/accounts/test", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   // Tests first; saves only when the sign-in works.
   addAccount: (input: AccountInput) =>
-    request<Account>("/api/accounts", { method: "POST", body: JSON.stringify(input) }),
+    request<Account>("/api/accounts", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   inbox: (id: number) => request<Inbox>(`/api/accounts/${id}/inbox`),
   removeAccount: (id: number) => request<void>(`/api/accounts/${id}`, { method: "DELETE" }),
 
   googleSettings: () => request<GoogleSettings>("/api/google"),
   saveGoogleClient: (clientId: string, clientSecret: string) =>
-    request<GoogleSettings>("/api/google", { method: "PUT", body: JSON.stringify({ clientId, clientSecret }) }),
+    request<GoogleSettings>("/api/google", {
+      method: "PUT",
+      body: JSON.stringify({ clientId, clientSecret }),
+    }),
   // Opens Google's sign-in page in the default browser. hint: the address, when signing in again.
   startGoogleSignIn: (hint = "") =>
-    request<SignInStart>("/api/google/signin", { method: "POST", body: JSON.stringify({ hint }) }),
+    request<SignInStart>("/api/google/signin", {
+      method: "POST",
+      body: JSON.stringify({ hint }),
+    }),
   googleSignInStatus: (state: string) => request<SignInStatus>(`/api/google/signin/${encodeURIComponent(state)}`),
+
+  saveFolders: () => request<SaveFolder[]>("/api/folders"),
+  addSaveFolder: (name: string, path: string) =>
+    request<SaveFolder>("/api/folders", {
+      method: "POST",
+      body: JSON.stringify({ name, path }),
+    }),
+  removeSaveFolder: (id: number) => request<void>(`/api/folders/${id}`, { method: "DELETE" }),
+  browseFolder: (id: number, path: string) =>
+    request<FolderBrowse>(`/api/folders/${id}/browse?path=${encodeURIComponent(path)}`),
+  makeSubfolder: (id: number, path: string, name: string) =>
+    request<FolderBrowse>(`/api/folders/${id}/subfolders`, {
+      method: "POST",
+      body: JSON.stringify({ path, name }),
+    }),
+  // Marks messages done, or not done; audited. Changes nothing in the mailbox.
+  markDone: (messages: MessageKey[], done: boolean) =>
+    request<{ marked: number }>("/api/messages/done", {
+      method: "POST",
+      body: JSON.stringify({ messages, done }),
+    }),
+  // Saves the attachments of these messages into a place in a save folder; audited.
+  saveAttachments: (folderId: number, path: string, messages: MessageKey[]) =>
+    request<SaveResult>("/api/attachments/save", {
+      method: "POST",
+      body: JSON.stringify({ folderId, path, messages }),
+    }),
+
+  // The last answer for a scope ("all" or an account id), without asking the AI; null when none.
+  latestTriage: (scope: string) => request<TriageResult | null>(`/api/triage?scope=${encodeURIComponent(scope)}`),
+  // Asks the AI; billed to the user's key.
+  runTriage: (scope: string, withText: boolean) =>
+    request<TriageResult>("/api/triage", {
+      method: "POST",
+      body: JSON.stringify({ scope, withText }),
+    }),
 
   // The messages kept from the last refresh, at once.
   storedInbox: () => request<InboxList>("/api/inbox"),
@@ -211,7 +345,10 @@ export const api = {
 
   // Nothing is changed by a preview.
   previewAction: (id: number, criteria: Criteria) =>
-    request<ActionPreview>(`/api/accounts/${id}/actions/preview`, { method: "POST", body: JSON.stringify(criteria) }),
+    request<ActionPreview>(`/api/accounts/${id}/actions/preview`, {
+      method: "POST",
+      body: JSON.stringify(criteria),
+    }),
   // Moves the confirmed messages to Trash or Spam; audited. 409 when the count no longer matches.
   applyAction: (id: number, kind: ActionKind, criteria: Criteria, expected: number) =>
     request<ActionOutcome>(`/api/accounts/${id}/actions`, {
@@ -220,14 +357,24 @@ export const api = {
     }),
   // Records in the audit that the user opened an unsubscribe address. Cockatoo fetches nothing.
   logUnsubscribe: (id: number, address: string, target: string) =>
-    request<void>(`/api/accounts/${id}/unsubscribe-opened`, { method: "POST", body: JSON.stringify({ address, target }) }),
+    request<void>(`/api/accounts/${id}/unsubscribe-opened`, {
+      method: "POST",
+      body: JSON.stringify({ address, target }),
+    }),
 
   aiSettings: () => request<AISettings>("/api/ai"),
   // Turning AI off keeps the key.
   setAIEnabled: (enabled: boolean) =>
-    request<AISettings>("/api/ai/enabled", { method: "PUT", body: JSON.stringify({ enabled }) }),
+    request<AISettings>("/api/ai/enabled", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   // Checks the key with Anthropic first (free); saves only when it is accepted, and turns AI on.
-  saveAIKey: (key: string) => request<AISettings>("/api/ai/key", { method: "PUT", body: JSON.stringify({ key }) }),
+  saveAIKey: (key: string) =>
+    request<AISettings>("/api/ai/key", {
+      method: "PUT",
+      body: JSON.stringify({ key }),
+    }),
   removeAIKey: () => request<AISettings>("/api/ai/key", { method: "DELETE" }),
   // Sends one short message with the saved key; costs a little on the user's key.
   aiTestMessage: () => request<AIReply>("/api/ai/test-message", { method: "POST" }),

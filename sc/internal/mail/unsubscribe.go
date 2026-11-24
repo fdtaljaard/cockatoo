@@ -20,8 +20,33 @@ type Unsubscribe struct {
 // Empty reports whether the message offers no way to unsubscribe.
 func (u Unsubscribe) Empty() bool { return u.URL == "" && u.Mailto == "" }
 
-// unsubscribeFields are the header fields read for every message.
-var unsubscribeFields = []string{"List-Unsubscribe", "List-Unsubscribe-Post"}
+// listFields are the header fields read for every message: how to unsubscribe, and the marks of
+// mail sent to a list or by a machine (RFC 2919 List-Id, Precedence, RFC 3834 Auto-Submitted).
+var listFields = []string{"List-Unsubscribe", "List-Unsubscribe-Post", "List-Id", "Precedence", "Auto-Submitted"}
+
+// Markers are the list and automated-mail headers of a message, as sent (lower case, trimmed).
+type Markers struct {
+	ListID        string
+	Precedence    string
+	AutoSubmitted string
+}
+
+// parseMarkers reads the list and automated-mail markers from the same raw header block.
+func parseMarkers(raw []byte) Markers {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return Markers{}
+	}
+	r := textproto.NewReader(bufio.NewReader(bytes.NewReader(append(bytes.TrimRight(raw, "\r\n"), "\r\n\r\n"...))))
+	h, _ := r.ReadMIMEHeader()
+	field := func(name string, max int) string {
+		v := strings.ToLower(strings.Join(strings.Fields(h.Get(name)), " "))
+		if len(v) > max {
+			v = v[:max]
+		}
+		return v
+	}
+	return Markers{ListID: field("List-Id", 200), Precedence: field("Precedence", 40), AutoSubmitted: field("Auto-Submitted", 60)}
+}
 
 // parseUnsubscribe reads the List-Unsubscribe fields from a raw header block (as returned for
 // BODY.PEEK[HEADER.FIELDS (...)]). Folded lines, several addresses and junk are all handled; what

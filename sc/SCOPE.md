@@ -50,6 +50,7 @@ An extremely simple email client for Windows: one program, your mail accounts in
 | The store | The DuckDB file: accounts, mail, AI results, settings. One writer. | `internal/store` |
 | Secrets | Encrypts passwords and keys before they go into the store. | `internal/secret` |
 | AI client | Sends a request to the AI provider with your key and returns the answer. Anthropic first. | `internal/ai` |
+| Files | Save folders on disk: lists and makes subfolders, writes attachments without overwriting. | `internal/files` |
 
 How they connect:
 
@@ -69,10 +70,12 @@ The app runs only while its window is open, so mail syncs while you are using it
 |---|---|---|
 | Your mail itself | The mail provider (Gmail) | It stays the source of truth. Cockatoo can be deleted and nothing is lost. |
 | What cockatoo knows about your mail | `cockatoo.duckdb` beside the exe | Fast to show and search, and it is where AI results are kept so they are not paid for twice. |
+| Attachments you save | Your own folders, set up on the Folders screen | You choose where; cockatoo keeps only the list of folders and, in the audit, which files it wrote. |
 | Mail passwords, the AI API key | `cockatoo.duckdb`, encrypted | Encrypted with the Windows sign-in (DPAPI) before they are stored. They open only for the same Windows user on the same computer, so a copy of the file carries no usable password. |
 
-Headers (sender, subject, time, read or not) are stored as they are, not encrypted. Whether message bodies
-are stored is not decided. See section 10.
+Headers (sender, recipients, subject, time, read or not) are stored as they are, not encrypted; so are the
+headers of the Sent folder. Message text is not stored: it is read when needed (the first lines, for the
+AI; the attachments, when you save them) and let go. Whether bodies are ever stored is not decided. See section 10.
 
 ## 6. Mail accounts: Gmail first
 
@@ -102,7 +105,11 @@ when the sign-in works.
 - Each AI request costs money on your key. Results are stored, so the same question about the same message
   is asked once.
 
-The first thing the AI does is help you clean up your inbox. See section 9.
+The AI's first jobs: **what needs you now** on the Inbox (built 2026-11-24: cockatoo first leaves out
+automated and already-answered mail using the headers and the Sent folder, then the AI reads the rest,
+with the first lines of each message when the user allows it, and says what needs a reply), and cleaning
+up the inbox (section 9).
+Every request to the AI is recorded, insert-only, with the messages it sent and the tokens it took.
 
 ## 8. The UI: flat, quiet, at a glance
 
@@ -172,7 +179,7 @@ running it locally fits rule 3. To decide before step 3.
 ## 10. Not decided yet
 
 1. **Bodies.** Are message bodies stored locally (works offline, searchable, larger file) or fetched when a
-   message is opened? And attachments?
+   message is opened? Attachments are not stored: they are written to your own folders when you save them.
 2. **Sending.** The brief says display and manage. Is writing and sending mail in the first version?
 3. **Google sign-in for everyone.** Built for one Workspace (an Internal app, the user's own Google Cloud
    client). For strangers: one cockatoo client, External, through Google's review. See section 6.
@@ -207,4 +214,8 @@ running it locally fits rule 3. To decide before step 3.
 | 2026-11-24 | Every action on a mailbox is audited, insert-only: a record before (what, which messages, criteria, source) and a result after. A page to read it comes later. |
 | 2026-11-24 | Cleanup step 2: Trash (a sender's mail, or a year's) and Spam (a sender's mail) on the rows, confirmed in the row with the exact count; moves only over IMAP MOVE into the folder Gmail marks `\Trash` or `\Junk`, never a created one. Unsubscribe: senders whose mail carries List-Unsubscribe are shown, and the link opens on the user's click; cockatoo itself fetches nothing. |
 | 2026-11-24 | Google sign-in for work accounts: OAuth desktop flow (loopback, PKCE) in the default browser, refresh token encrypted with DPAPI, IMAP over XOAUTH2 with a fresh access token per connection. The Google Cloud client is the user's own for now, entered in the app. |
+| 2026-11-24 | AI on the Inbox, "what needs you now": one request with a fixed answer shape over the unread mail of the last 30 days (up to 300, headers and sender facts only); code checks every pick against what was sent; every AI request recorded insert-only. |
+| 2026-11-24 | "What needs you now", revised after real use: headers and subjects alone were not enough. Cockatoo now reads recipients, In-Reply-To and list / automated markers, and the Sent folder's headers; it leaves out mail already answered and automated mail from people the user never writes to (never a reply to their own mail or mail from someone they write to); the first 600 characters of each remaining message go to the AI when the user allows it. The text is not stored. |
+| 2026-11-24 | Save attachments: save folders are a name and an existing path. In the Inbox, tick messages and Save attachments; choose a folder, open or make a subfolder (this month and today are one click), save. Files are never overwritten, carry the internet mark, and stay inside the folder. Audited, with each file written. An exception to rule 8.2, as asked: Save attachments shows only once messages are ticked (rule 8.3); while none are, the bar above the list says what ticking does. |
+| 2026-11-24 | Mail you have dealt with shows green on its Inbox row, saying how: attachments saved (with the folder), replied (from the Sent folder) or marked done (a Done button on every row and AI pick, Mark done for several, Not done to take it back). Done is local, never a change in Gmail. It is not a new state: it is read from the audit (the latest mark wins) and the Sent copy. Mail dealt with is left out of "what needs you now". |
 | 2026-11-24 | The first AI feature is inbox cleanup: a conversation that asks and proposes, decisions saved with reasons and reused next time, built in five steps (section 9). Delete means Gmail's Trash, never permanent; the AI never acts on its own. |

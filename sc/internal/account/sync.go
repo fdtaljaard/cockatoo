@@ -17,11 +17,23 @@ import (
 type mailbox interface {
 	Inbox() (imap.InboxState, error)
 	Headers(uids []uint32) ([]imap.Message, error)
+	Texts(uids []uint32, max int) (map[uint32]string, error)
+	Raw(uids []uint32) (raw map[uint32][]byte, tooBig map[uint32]int64, err error)
+	Folder() string
 	Close()
 }
 
 func dialSession(ctx context.Context, srv imap.Server, login imap.Login) (mailbox, error) {
 	return imap.Open(ctx, srv, login)
+}
+
+// dialSentFolder opens the Sent folder; found is false when the server has none.
+func dialSentFolder(ctx context.Context, srv imap.Server, login imap.Login) (mailbox, bool, error) {
+	s, found, err := imap.OpenSent(ctx, srv, login)
+	if err != nil || !found {
+		return nil, found, err
+	}
+	return s, true, nil
 }
 
 // headerBatch is how many messages' headers are asked for at once.
@@ -42,12 +54,16 @@ type AccountSync struct {
 	AccountID int64  `json:"accountId"`
 	Email     string `json:"email"`
 	// "waiting", "listing" (asking the server what is in the inbox), "reading" (reading the
-	// headers of messages not yet in the copy), "done" or "failed".
+	// headers of messages not yet in the copy), "sent" (the same for the Sent folder), "done" or
+	// "failed".
 	State   string `json:"state"`
 	Read    int    `json:"read"`    // headers read so far in this sync
 	ToRead  int    `json:"toRead"`  // headers this sync has to read
 	Skipped int    `json:"skipped"` // messages whose headers the server could not give
 	Error   string `json:"error,omitempty"`
+	// The Sent folder could not be read. The inbox is fine; only the "who you write to" facts
+	// are missing until the next sync.
+	SentError string `json:"sentError,omitempty"`
 }
 
 type syncer struct {
@@ -195,6 +211,8 @@ func (s *Service) SyncAccount(ctx context.Context, id int64, progress func(Accou
 				AccountID: id, UIDValidity: m.UIDValidity, UID: m.UID, MessageID: m.MessageID,
 				FromName: m.FromName, FromAddr: m.FromAddr, Subject: m.Subject, ReceivedAt: m.Received, Seen: listed[m.UID],
 				Unsubscribe: store.Unsubscribe{URL: m.Unsubscribe.URL, Mailto: m.Unsubscribe.Mailto, OneClick: m.Unsubscribe.OneClick},
+				To:          m.To, Cc: m.Cc, InReplyTo: m.InReplyTo, ListID: m.Markers.ListID, Precedence: m.Markers.Precedence,
+				AutoSubmitted: m.Markers.AutoSubmitted,
 			}
 		}
 		if err := s.st.AddMessages(ctx, id, rows); err != nil {
@@ -208,9 +226,92 @@ func (s *Service) SyncAccount(ctx context.Context, id int64, progress func(Accou
 	if err := s.st.FinishInboxSync(ctx, id, listed); err != nil {
 		return fail(err)
 	}
+	box.Close()
+
+	// The Sent folder: who the user writes to and what they answered. It never fails the sync.
+	if err := s.syncSent(ctx, id, login, &p, report); err != nil {
+		p.SentError = explainMail(err).Error()
+		log.Printf("sync of account %d: sent folder: %v", id, err)
+	}
 	p.State = "done"
 	report()
 	return nil
+}
+
+// syncSent brings the copy of the Sent folder up to date, the same way as the inbox's: list,
+// read the headers of what is not yet in the copy, and remove what left only after a full pass.
+func (s *Service) syncSent(ctx context.Context, id int64, login imap.Login, p *AccountSync, report func()) error {
+	if s.dialSent == nil {
+		return nil
+	}
+	box, found, err := s.dialSent(ctx, s.server, login)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	defer box.Close()
+	list, err := box.Inbox()
+	if err != nil {
+		return err
+	}
+	if err := s.st.BeginSentSync(ctx, id, box.Folder(), list.UIDValidity); err != nil {
+		return err
+	}
+	stored, err := s.st.StoredSentUIDs(ctx, id)
+	if err != nil {
+		return err
+	}
+	listed := make(map[uint32]bool, len(list.Messages))
+	var missing []uint32
+	for _, m := range list.Messages {
+		listed[m.UID] = true
+		if !stored[m.UID] {
+			missing = append(missing, m.UID)
+		}
+	}
+	slices.SortFunc(missing, func(x, y uint32) int { return int(y) - int(x) })
+	p.State, p.Read, p.ToRead = "sent", 0, len(missing)
+	report()
+	for start := 0; start < len(missing); start += headerBatch {
+		batch := missing[start:min(start+headerBatch, len(missing))]
+		got, skipped, err := s.readHeaders(ctx, box, batch)
+		if err != nil {
+			return err
+		}
+		rows := make([]store.SentMessage, len(got))
+		for i, m := range got {
+			rows[i] = store.SentMessage{UIDValidity: m.UIDValidity, UID: m.UID, MessageID: m.MessageID, FromAddr: m.FromAddr,
+				To: m.To, Cc: m.Cc, InReplyTo: m.InReplyTo, SentAt: m.Received}
+		}
+		if err := s.st.AddSent(ctx, id, rows); err != nil {
+			return err
+		}
+		p.Read += len(batch)
+		p.Skipped += skipped
+		report()
+	}
+	return s.st.FinishSentSync(ctx, id, listed)
+}
+
+// MessageTexts reads the start of the text of some of an account's inbox messages, at most max
+// characters each, without marking them read. The text is returned, never stored.
+func (s *Service) MessageTexts(ctx context.Context, id int64, uids []uint32, max int) (map[uint32]string, error) {
+	a, sealed, err := s.st.AccountSecret(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	login, err := s.loginFor(ctx, a, sealed)
+	if err != nil {
+		return nil, err
+	}
+	box, err := s.dial(ctx, s.server, login)
+	if err != nil {
+		return nil, explainMail(err)
+	}
+	defer box.Close()
+	return box.Texts(uids, max)
 }
 
 // readHeaders reads one batch. When the server fails on a batch (one malformed message can do

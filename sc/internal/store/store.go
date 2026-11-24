@@ -168,6 +168,111 @@ var migrations = []string{
 	   secret     BLOB NOT NULL,
 	   updated_at TIMESTAMP NOT NULL
 	 );`,
+	// 8: every request cockatoo sends to an AI provider, insert-only: what kind, for which
+	// accounts, which model answered, the tokens it took, the answer (or why there was none), and
+	// each message that was sent.
+	`CREATE SEQUENCE IF NOT EXISTS seq_ai_request START 1;
+	 CREATE TABLE IF NOT EXISTS ai_request (
+	   id            INTEGER PRIMARY KEY DEFAULT nextval('seq_ai_request'),
+	   created_at    TIMESTAMP NOT NULL,
+	   kind          VARCHAR NOT NULL,
+	   scope         VARCHAR NOT NULL,
+	   model         VARCHAR,
+	   input_tokens  BIGINT NOT NULL,
+	   output_tokens BIGINT NOT NULL,
+	   sent          INTEGER NOT NULL,
+	   left_out      INTEGER NOT NULL,
+	   partial       BOOLEAN NOT NULL,
+	   answer        VARCHAR,
+	   error         VARCHAR
+	 );
+	 CREATE TABLE IF NOT EXISTS ai_request_item (
+	   request_id   INTEGER NOT NULL,
+	   ref          VARCHAR NOT NULL,
+	   account_id   INTEGER NOT NULL,
+	   uid_validity BIGINT NOT NULL,
+	   uid          BIGINT NOT NULL,
+	   from_addr    VARCHAR,
+	   subject      VARCHAR
+	 );`,
+	// 9: what tells mail that needs a reply from mail to skim. The cache gains each message's
+	// recipients, the message it answers, and its list / automated markers; every message has to be
+	// read again for them, so the two cache tables are made anew as in migration 6. sent_message is
+	// a cache of the Sent folder's headers (who the user writes to, and what they answered), with
+	// its own sync state. The AI request record gains whether message text was sent, and how much
+	// mail was left out as automated or already answered.
+	`DROP TABLE IF EXISTS message;
+	 DROP TABLE IF EXISTS inbox_sync;
+	 CREATE TABLE message (
+	   account_id      INTEGER NOT NULL,
+	   uid_validity    BIGINT NOT NULL,
+	   uid             BIGINT NOT NULL,
+	   message_id      VARCHAR,
+	   from_name       VARCHAR,
+	   from_addr       VARCHAR,
+	   to_addrs        VARCHAR,
+	   cc_addrs        VARCHAR,
+	   in_reply_to     VARCHAR,
+	   subject         VARCHAR,
+	   received_at     TIMESTAMP NOT NULL,
+	   seen            BOOLEAN NOT NULL,
+	   unsub_url       VARCHAR,
+	   unsub_mailto    VARCHAR,
+	   unsub_one_click BOOLEAN NOT NULL,
+	   list_id         VARCHAR,
+	   precedence      VARCHAR,
+	   auto_submitted  VARCHAR,
+	   refreshed_at    TIMESTAMP NOT NULL,
+	   PRIMARY KEY (account_id, uid_validity, uid)
+	 );
+	 CREATE TABLE inbox_sync (
+	   account_id   INTEGER PRIMARY KEY,
+	   uid_validity BIGINT NOT NULL,
+	   server_total INTEGER NOT NULL,
+	   complete     BOOLEAN NOT NULL,
+	   started_at   TIMESTAMP NOT NULL,
+	   synced_at    TIMESTAMP
+	 );
+	 CREATE TABLE IF NOT EXISTS sent_message (
+	   account_id   INTEGER NOT NULL,
+	   uid_validity BIGINT NOT NULL,
+	   uid          BIGINT NOT NULL,
+	   message_id   VARCHAR,
+	   from_addr    VARCHAR,
+	   to_addrs     VARCHAR,
+	   cc_addrs     VARCHAR,
+	   in_reply_to  VARCHAR,
+	   sent_at      TIMESTAMP NOT NULL,
+	   PRIMARY KEY (account_id, uid_validity, uid)
+	 );
+	 CREATE TABLE IF NOT EXISTS sent_sync (
+	   account_id   INTEGER PRIMARY KEY,
+	   folder       VARCHAR NOT NULL,
+	   uid_validity BIGINT NOT NULL,
+	   complete     BOOLEAN NOT NULL,
+	   synced_at    TIMESTAMP
+	 );
+	 ALTER TABLE ai_request ADD COLUMN IF NOT EXISTS text_sent BOOLEAN DEFAULT false;
+	 ALTER TABLE ai_request ADD COLUMN IF NOT EXISTS text_chars INTEGER DEFAULT 0;
+	 ALTER TABLE ai_request ADD COLUMN IF NOT EXISTS left_automated INTEGER DEFAULT 0;
+	 ALTER TABLE ai_request ADD COLUMN IF NOT EXISTS left_answered INTEGER DEFAULT 0;`,
+	// 10: save folders, the places on disk the user saves attachments to (a name and a path), and
+	// the audit of every file an action wrote: its full path (so the record outlives the save
+	// folder) and size. Not a cache: nothing here is dropped.
+	`CREATE SEQUENCE IF NOT EXISTS seq_save_folder START 1;
+	 CREATE TABLE IF NOT EXISTS save_folder (
+	   id         INTEGER PRIMARY KEY DEFAULT nextval('seq_save_folder'),
+	   name       VARCHAR NOT NULL,
+	   path       VARCHAR NOT NULL,
+	   created_at TIMESTAMP NOT NULL
+	 );
+	 CREATE TABLE IF NOT EXISTS action_file (
+	   action_id    INTEGER NOT NULL,
+	   uid_validity BIGINT NOT NULL,
+	   uid          BIGINT NOT NULL,
+	   path         VARCHAR NOT NULL,
+	   bytes        BIGINT NOT NULL
+	 );`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

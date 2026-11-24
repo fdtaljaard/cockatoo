@@ -5,6 +5,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -52,23 +53,47 @@ func (c *Client) Check(ctx context.Context) error {
 
 // Reply is Claude's answer to one message.
 type Reply struct {
-	Text  string `json:"text"`
-	Model string `json:"model"` // the model that answered; another one when a fallback served it
+	Text         string `json:"text"`
+	Model        string `json:"model"` // the model that answered; another one when a fallback served it
+	InputTokens  int64  `json:"inputTokens"`
+	OutputTokens int64  `json:"outputTokens"`
 }
 
-// Ask sends one message and returns the text of the reply. When Anthropic's safety checks
-// decline the request on the chosen model, the server retries it on the model Anthropic
-// recommends for that case (fallbacks "default"), inside the same call.
+// Request is one message to Claude.
+type Request struct {
+	System string
+	Prompt string
+	// Schema, when set, is the JSON schema the answer must follow (structured outputs); the
+	// reply's Text is then that JSON. Every object needs "additionalProperties": false.
+	Schema json.RawMessage
+	// Effort is "low", "medium", "high", "xhigh" or "max"; empty leaves the model's default.
+	Effort string
+}
+
+// Ask sends one message and returns the text of the reply.
 func (c *Client) Ask(ctx context.Context, system, prompt string) (Reply, error) {
+	return c.Complete(ctx, Request{System: system, Prompt: prompt})
+}
+
+// Complete sends one message and returns the reply with the tokens it used. When Anthropic's
+// safety checks decline the request on the chosen model, the server retries it on the model
+// Anthropic recommends for that case (fallbacks "default"), inside the same call.
+func (c *Client) Complete(ctx context.Context, r Request) (Reply, error) {
 	params := anthropic.BetaMessageNewParams{
 		Model:     c.model,
 		MaxTokens: maxTokens,
-		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(prompt))},
+		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(r.Prompt))},
 		Fallbacks: anthropic.BetaFallbacksParamOfDefault(),
 		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 	}
-	if system != "" {
-		params.System = []anthropic.BetaTextBlockParam{{Text: system}}
+	if r.System != "" {
+		params.System = []anthropic.BetaTextBlockParam{{Text: r.System}}
+	}
+	if r.Effort != "" {
+		params.OutputConfig.Effort = anthropic.BetaOutputConfigEffort(r.Effort)
+	}
+	if len(r.Schema) > 0 {
+		params.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: r.Schema}
 	}
 	msg, err := c.c.Beta.Messages.New(ctx, params)
 	if err != nil {
@@ -82,17 +107,21 @@ func (c *Client) Ask(ctx context.Context, system, prompt string) (Reply, error) 
 		}
 		return Reply{}, fmt.Errorf("Claude declined this request: %s.", why)
 	}
+	if msg.StopReason == anthropic.BetaStopReasonMaxTokens {
+		// A cut-off answer is not an answer, least of all a cut-off JSON one.
+		return Reply{}, errors.New("Claude ran out of room before it finished. Nothing was kept.")
+	}
 	var text strings.Builder
 	for _, block := range msg.Content {
 		if block.Type == "text" {
 			text.WriteString(block.Text)
 		}
 	}
-	reply := Reply{Text: strings.TrimSpace(text.String()), Model: string(msg.Model)}
+	reply := Reply{
+		Text: strings.TrimSpace(text.String()), Model: string(msg.Model),
+		InputTokens: msg.Usage.InputTokens, OutputTokens: msg.Usage.OutputTokens,
+	}
 	if reply.Text == "" {
-		if msg.StopReason == anthropic.BetaStopReasonMaxTokens {
-			return Reply{}, errors.New("Claude ran out of room before it answered. The request needs a larger limit.")
-		}
 		return Reply{}, fmt.Errorf("Claude's reply had no text (stop reason %q)", msg.StopReason)
 	}
 	return reply, nil

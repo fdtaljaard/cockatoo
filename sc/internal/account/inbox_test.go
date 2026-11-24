@@ -115,6 +115,8 @@ type fakeBox struct {
 	headers map[uint32]imapc.Message
 	broken  map[uint32]bool
 	offline bool
+	raw     map[uint32][]byte // whole messages, for saving attachments
+	big     map[uint32]int64  // messages too big to read
 }
 
 func (f *fakeBox) Inbox() (imapc.InboxState, error) {
@@ -135,6 +137,36 @@ func (f *fakeBox) Headers(uids []uint32) ([]imapc.Message, error) {
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeBox) Texts(uids []uint32, max int) (map[uint32]string, error) {
+	if f.offline {
+		return nil, errors.New("could not reach imap.gmail.com:993")
+	}
+	out := map[uint32]string{}
+	for _, u := range uids {
+		if m, ok := f.headers[u]; ok {
+			out[u] = "text of " + m.Subject
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeBox) Folder() string { return "INBOX" }
+
+func (f *fakeBox) Raw(uids []uint32) (map[uint32][]byte, map[uint32]int64, error) {
+	if f.offline {
+		return nil, nil, errors.New("could not reach imap.gmail.com:993")
+	}
+	raw, big := map[uint32][]byte{}, map[uint32]int64{}
+	for _, u := range uids {
+		if b, ok := f.raw[u]; ok {
+			raw[u] = b
+		} else if n, ok := f.big[u]; ok {
+			big[u] = n
+		}
+	}
+	return raw, big, nil
 }
 
 func (f *fakeBox) Close() {}
@@ -219,4 +251,56 @@ func TestStartAndStopSync(t *testing.T) {
 		t.Fatal("a sync started after StopSync")
 	}
 	close(release)
+}
+
+// A sync also reads the Sent folder: who the user writes to, from which addresses, and what they
+// answered. A server without one is not an error.
+func TestSyncReadsSent(t *testing.T) {
+	user := imapmemserver.NewUser("me@example.com", "pw")
+	for _, name := range []string{"INBOX", "[Gmail]/Sent Mail"} {
+		if err := user.Create(name, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put := func(box, raw string) {
+		if _, err := user.Append(box, literal{strings.NewReader(raw)}, &imap.AppendOptions{Time: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("INBOX", "From: Ann <ann@example.com>\r\nTo: me@example.com\r\nMessage-ID: <q1@x>\r\nIn-Reply-To: <s1@x>\r\nSubject: re: budget\r\n\r\nok\r\n")
+	put("[Gmail]/Sent Mail", "From: me@example.com\r\nTo: ann@example.com\r\nMessage-ID: <s1@x>\r\nSubject: budget\r\n\r\nhi\r\n")
+	mem := imapmemserver.New()
+	mem.AddUser(user)
+	srv := imapserver.New(&imapserver.Options{
+		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+			return mem.NewSession(), nil, nil
+		},
+		Caps:         imap.CapSet{imap.CapIMAP4rev1: {}},
+		InsecureAuth: true,
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	s, id := newService(t)
+	s.server = imapc.Server{Addr: ln.Addr().String()}
+	s.dialSent = dialSentFolder
+	var last AccountSync
+	if err := s.SyncAccount(context.Background(), id, func(p AccountSync) { last = p }); err != nil {
+		t.Fatal(err)
+	}
+	if last.State != "done" || last.SentError != "" {
+		t.Fatalf("last %+v", last)
+	}
+	f, err := s.st.SentFactsFor(context.Background(), id)
+	if err != nil || !f.Complete || f.Correspondents["ann@example.com"] != 1 || !f.SentIDs["s1@x"] || !f.MyAddresses["me@example.com"] {
+		t.Fatalf("facts %+v %v", f, err)
+	}
+	c, _, err := s.st.TriageCandidates(context.Background(), []int64{id}, time.Now().Add(-time.Hour), 10)
+	if err != nil || len(c) != 1 || c[0].InReplyTo != "s1@x" || strings.Join(c[0].To, ",") != "me@example.com" {
+		t.Fatalf("candidate %+v %v", c, err)
+	}
 }

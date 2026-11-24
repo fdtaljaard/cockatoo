@@ -8,9 +8,11 @@ import {
   type Account,
   type AccountInput,
   type AISettings,
+  type Handled,
   type Inbox,
   type InboxList,
   type MailMessage,
+  type MessageKey,
   type Overview,
   type SenderCount,
   type SyncStatus,
@@ -21,7 +23,13 @@ const AI_KEY = "cockatoo.mock.ai"
 function loadAI(): AISettings {
   const saved = sessionStorage.getItem(AI_KEY)
   if (saved) return JSON.parse(saved) as AISettings
-  return { provider: "anthropic", enabled: false, model: "claude-opus-5-5", hasKey: false, updatedAt: new Date().toISOString() }
+  return {
+    provider: "anthropic",
+    enabled: false,
+    model: "claude-opus-5-5",
+    hasKey: false,
+    updatedAt: new Date().toISOString(),
+  }
 }
 
 function saveAI(settings: AISettings): AISettings {
@@ -39,15 +47,26 @@ function mockAI(method: string, path: string, init?: RequestInit): unknown {
     const key = (body.key ?? "").replace(/\s+/g, "")
     if (!key) throw new ApiError("Paste your Anthropic API key.", 400)
     if (key === "wrong") {
-      throw new ApiError("Anthropic did not accept this API key. Check that it was copied in full and has not been deleted.", 502)
+      throw new ApiError(
+        "Anthropic did not accept this API key. Check that it was copied in full and has not been deleted.",
+        502,
+      )
     }
-    return saveAI({ ...ai, enabled: true, hasKey: true, keyHint: `${key.slice(0, 7)}…${key.slice(-4)}` })
+    return saveAI({
+      ...ai,
+      enabled: true,
+      hasKey: true,
+      keyHint: `${key.slice(0, 7)}…${key.slice(-4)}`,
+    })
   }
   if (method === "DELETE" && path === "/api/ai/key") return saveAI({ ...ai, hasKey: false, keyHint: undefined })
   if (method === "POST" && path === "/api/ai/test-message") {
     if (!ai.enabled) throw new ApiError("AI is turned off. Turn it on under AI.", 409)
     if (!ai.hasKey) throw new ApiError("No Anthropic API key is saved. Add one under AI.", 409)
-    return { text: "Hello! Cockatoo can talk to me just fine.", model: ai.model }
+    return {
+      text: "Hello! Cockatoo can talk to me just fine.",
+      model: ai.model,
+    }
   }
   return undefined
 }
@@ -60,7 +79,13 @@ const SAMPLE: [minutesAgo: number, fromName: string, fromAddr: string, subject: 
   [95, "Sam Okafor", "sam@example.com", "Lunch on Friday?", true],
   [180, "", "billing@example.com", "Your invoice for November", false],
   [420, "José Gómez", "jose@example.com", "Re: site visit notes", true],
-  [790, "Priya Nair", "priya@example.com", "A very long subject line that goes on to show how the list handles text that does not fit on one line", true],
+  [
+    790,
+    "Priya Nair",
+    "priya@example.com",
+    "A very long subject line that goes on to show how the list handles text that does not fit on one line",
+    true,
+  ],
   [1300, "Newsletter", "news@example.com", "", true],
 ]
 const SEEN_KEY = "cockatoo.mock.refreshed"
@@ -88,9 +113,21 @@ function mockInbox(accounts: Account[], refreshed: boolean): InboxList {
 // A mailbox of about 11,000 messages over fifteen years, read by a sync that takes a few seconds
 // the first time and a moment after that.
 const YEARS: [year: number, messages: number, unread: number][] = [
-  [2012, 214, 31], [2013, 356, 48], [2014, 522, 77], [2015, 611, 92], [2016, 704, 66], [2017, 823, 58],
-  [2018, 765, 41], [2019, 688, 37], [2020, 981, 52], [2021, 1104, 44], [2022, 942, 39], [2023, 873, 33],
-  [2024, 1022, 61], [2025, 1236, 84], [2026, 1184, 112],
+  [2012, 214, 31],
+  [2013, 356, 48],
+  [2014, 522, 77],
+  [2015, 611, 92],
+  [2016, 704, 66],
+  [2017, 823, 58],
+  [2018, 765, 41],
+  [2019, 688, 37],
+  [2020, 981, 52],
+  [2021, 1104, 44],
+  [2022, 942, 39],
+  [2023, 873, 33],
+  [2024, 1022, 61],
+  [2025, 1236, 84],
+  [2026, 1184, 112],
 ]
 const SENDERS: [name: string, address: string, messages: number, unread: number, from: number, to: number][] = [
   ["Northwind Deals", "deals@mail.northwind.example", 1412, 402, 2014, 2026],
@@ -117,7 +154,14 @@ const SENDERS: [name: string, address: string, messages: number, unread: number,
   ["Trey Research", "reports@treyresearch.example", 88, 5, 2019, 2026],
   ["City of Example", "rates@city.example", 74, 0, 2015, 2026],
   ["Blue Yonder Airlines", "flights@blueyonder.example", 69, 2, 2012, 2025],
-  ["A very long sender name that goes on to show how the table handles it", "someone.with.a.long.address@subdomain.example.com", 61, 20, 2016, 2024],
+  [
+    "A very long sender name that goes on to show how the table handles it",
+    "someone.with.a.long.address@subdomain.example.com",
+    61,
+    20,
+    2016,
+    2024,
+  ],
 ]
 const YEAR_TOTAL = YEARS.reduce((n, [, m]) => n + m, 0)
 const SYNC_KEY = "cockatoo.mock.sync"
@@ -157,17 +201,45 @@ function mockSyncStatus(accounts: Account[]): SyncStatus {
 
 // Senders whose mail carries an unsubscribe address in the mock, and what it is.
 const UNSUB: Record<string, { url?: string; mailto?: string; oneClick: boolean }> = {
-  "deals@mail.northwind.example": { url: "https://northwind.example/unsubscribe?u=1", oneClick: true },
-  "messages-noreply@linkedin.example": { url: "https://linkedin.example/settings/email", oneClick: false },
-  "digest@news.example": { url: "https://news.example/u/1", mailto: "mailto:leave@news.example", oneClick: true },
-  "offers@contoso-travel.example": { url: "https://contoso-travel.example/unsub", oneClick: true },
-  "hello@adventure-works.example": { mailto: "mailto:unsubscribe@adventure-works.example", oneClick: false },
+  "deals@mail.northwind.example": {
+    url: "https://northwind.example/unsubscribe?u=1",
+    oneClick: true,
+  },
+  "messages-noreply@linkedin.example": {
+    url: "https://linkedin.example/settings/email",
+    oneClick: false,
+  },
+  "digest@news.example": {
+    url: "https://news.example/u/1",
+    mailto: "mailto:leave@news.example",
+    oneClick: true,
+  },
+  "offers@contoso-travel.example": {
+    url: "https://contoso-travel.example/unsub",
+    oneClick: true,
+  },
+  "hello@adventure-works.example": {
+    mailto: "mailto:unsubscribe@adventure-works.example",
+    oneClick: false,
+  },
   "news@wwi.example": { url: "https://wwi.example/prefs", oneClick: false },
-  "promo@tailspin.example": { url: "https://tailspin.example/u", oneClick: true },
+  "promo@tailspin.example": {
+    url: "https://tailspin.example/u",
+    oneClick: true,
+  },
   "club@coho.example": { url: "https://coho.example/leave", oneClick: false },
-  "deals@margiestravel.example": { url: "https://margiestravel.example/u", oneClick: true },
-  "newsletter@lucerne.example": { url: "https://lucerne.example/unsubscribe", oneClick: false },
-  "rewards@fourthcoffee.example": { url: "https://fourthcoffee.example/u", oneClick: true },
+  "deals@margiestravel.example": {
+    url: "https://margiestravel.example/u",
+    oneClick: true,
+  },
+  "newsletter@lucerne.example": {
+    url: "https://lucerne.example/unsubscribe",
+    oneClick: false,
+  },
+  "rewards@fourthcoffee.example": {
+    url: "https://fourthcoffee.example/u",
+    oneClick: true,
+  },
 }
 
 // What the mock's actions have moved out of the inbox: whole senders and whole years.
@@ -197,7 +269,10 @@ function senderRows(share: number, complete: boolean, firstYear: number, gone: M
 function mockOverview(accountId: number): Overview {
   const gone = moved()
   const goneBySender = SENDERS.filter(([, address]) => gone.senders.includes(address)).reduce(
-    (n, [, , messages, unread]) => ({ messages: n.messages + messages, unread: n.unread + unread }),
+    (n, [, , messages, unread]) => ({
+      messages: n.messages + messages,
+      unread: n.unread + unread,
+    }),
     { messages: 0, unread: 0 },
   )
   const keep = 1 - goneBySender.messages / YEAR_TOTAL
@@ -208,7 +283,11 @@ function mockOverview(accountId: number): Overview {
     .map(([year, messages, unread]) => {
       const take = Math.min(messages, left)
       left -= take
-      return { year, messages: Math.round(take * keep), unread: Math.round(((unread * take) / messages) * keep) }
+      return {
+        year,
+        messages: Math.round(take * keep),
+        unread: Math.round(((unread * take) / messages) * keep),
+      }
     })
     .filter((y) => y.messages > 0 && !gone.years.includes(y.year))
     .reverse()
@@ -217,7 +296,11 @@ function mockOverview(accountId: number): Overview {
   const senders = share > 0 ? senderRows(share, complete, firstYear, gone) : []
   return {
     accountId,
-    sync: { serverTotal: YEAR_TOTAL, complete, syncedAt: complete ? new Date().toISOString() : null },
+    sync: {
+      serverTotal: YEAR_TOTAL,
+      complete,
+      syncedAt: complete ? new Date().toISOString() : null,
+    },
     messages: years.reduce((n, y) => n + y.messages, 0),
     unread: years.reduce((n, y) => n + y.unread, 0),
     oldest: years.length ? new Date(Date.UTC(years[0].year, 0, 3)).toISOString() : null,
@@ -233,36 +316,63 @@ const GOOGLE_KEY = "cockatoo.mock.google"
 
 function mockGoogle(method: string, path: string, init: RequestInit | undefined, accounts: Account[]): unknown {
   const body = init?.body ? (JSON.parse(init.body as string) as Record<string, string>) : {}
-  const saved = JSON.parse(sessionStorage.getItem(GOOGLE_KEY) ?? "{}") as { clientId?: string; started?: Record<string, { at: number; hint: string }> }
+  const saved = JSON.parse(sessionStorage.getItem(GOOGLE_KEY) ?? "{}") as {
+    clientId?: string
+    started?: Record<string, { at: number; hint: string }>
+  }
   const store = () => sessionStorage.setItem(GOOGLE_KEY, JSON.stringify(saved))
-  if (method === "GET" && path === "/api/google") return { configured: Boolean(saved.clientId), clientId: saved.clientId }
+  if (method === "GET" && path === "/api/google")
+    return { configured: Boolean(saved.clientId), clientId: saved.clientId }
   if (method === "PUT" && path === "/api/google") {
     if (!(body.clientId ?? "").trim().endsWith(".apps.googleusercontent.com")) {
-      throw new ApiError("The client ID ends in .apps.googleusercontent.com. Copy it from the Google Cloud console.", 400)
+      throw new ApiError(
+        "The client ID ends in .apps.googleusercontent.com. Copy it from the Google Cloud console.",
+        400,
+      )
     }
-    if (!(body.clientSecret ?? "").trim()) throw new ApiError("Paste the client secret from the same client in the Google Cloud console.", 400)
+    if (!(body.clientSecret ?? "").trim())
+      throw new ApiError("Paste the client secret from the same client in the Google Cloud console.", 400)
     saved.clientId = body.clientId.trim()
     store()
     return { configured: true, clientId: saved.clientId }
   }
   if (method === "POST" && path === "/api/google/signin") {
-    if (!saved.clientId) throw new ApiError("Google sign-in is not set up yet. Add the client ID and secret first.", 409)
+    if (!saved.clientId)
+      throw new ApiError("Google sign-in is not set up yet. Add the client ID and secret first.", 409)
     const state = Math.random().toString(36).slice(2)
-    saved.started = { ...(saved.started ?? {}), [state]: { at: Date.now(), hint: body.hint ?? "" } }
+    saved.started = {
+      ...(saved.started ?? {}),
+      [state]: { at: Date.now(), hint: body.hint ?? "" },
+    }
     store()
-    return { state, url: "https://accounts.google.com/o/oauth2/v2/auth?mock=1", opened: true }
+    return {
+      state,
+      url: "https://accounts.google.com/o/oauth2/v2/auth?mock=1",
+      opened: true,
+    }
   }
   const m = path.match(/^\/api\/google\/signin\/(.+)$/)
   if (method === "GET" && m) {
     const s = saved.started?.[decodeURIComponent(m[1])]
-    if (!s) return { state: "failed", error: "This sign-in has expired. Start again." }
+    if (!s)
+      return {
+        state: "failed",
+        error: "This sign-in has expired. Start again.",
+      }
     if (Date.now() - s.at < 3000) return { state: "waiting" }
     const email = s.hint || "work@example.com"
     let account = accounts.find((a) => a.email === email)
     if (account) {
       account.auth = "google"
     } else {
-      account = { id: Math.max(0, ...accounts.map((a) => a.id)) + 1, provider: "gmail", name: email, email, auth: "google", createdAt: new Date().toISOString() }
+      account = {
+        id: Math.max(0, ...accounts.map((a) => a.id)) + 1,
+        provider: "gmail",
+        name: email,
+        email,
+        auth: "google",
+        createdAt: new Date().toISOString(),
+      }
       accounts.push(account)
     }
     save(accounts)
@@ -295,6 +405,13 @@ function check(input: AccountInput): Inbox {
   return { messages: 1284, unseen: 12 }
 }
 
+// What the user did about mock messages, by key.
+const HANDLED_KEY = "cockatoo.mock.handled"
+const mockKey = (k: MessageKey) => `${k.accountId}-${k.uidValidity}-${k.uid}`
+function loadHandled(): Record<string, Handled> {
+  return JSON.parse(sessionStorage.getItem(HANDLED_KEY) ?? "{}") as Record<string, Handled>
+}
+
 export async function mockRequest<T>(path: string, init?: RequestInit): Promise<T> {
   await wait(500)
   const method = init?.method ?? "GET"
@@ -308,7 +425,30 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
   }
   if (method === "GET" && path === "/api/inbox") {
     if (syncFraction() === 0) return { since: new Date().toISOString(), messages: [] } as T
-    return mockInbox(accounts, sessionStorage.getItem(SEEN_KEY) !== null) as T
+    const list = mockInbox(accounts, sessionStorage.getItem(SEEN_KEY) !== null)
+    const handled = loadHandled()
+    list.messages = list.messages.map((m, i) => {
+      const h = { ...handled[mockKey(m)] }
+      if (i === 3) h.replied = true // one message answered from Gmail, as the Sent folder would show
+      return Object.keys(h).length ? { ...m, handled: h } : m
+    })
+    return list as T
+  }
+  if (method === "POST" && path === "/api/messages/done") {
+    const b = JSON.parse(init!.body as string) as {
+      messages: MessageKey[]
+      done: boolean
+    }
+    if (!b.messages.length) throw new ApiError("Choose at least one message.", 400)
+    const handled = loadHandled()
+    for (const k of b.messages) {
+      const h = { ...handled[mockKey(k)] }
+      if (b.done) h.doneAt = new Date().toISOString()
+      else delete h.doneAt
+      handled[mockKey(k)] = h
+    }
+    sessionStorage.setItem(HANDLED_KEY, JSON.stringify(handled))
+    return { marked: b.messages.length } as T
   }
   if (method === "POST" && path === "/api/sync") {
     const s = syncState()
@@ -320,12 +460,14 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
   }
   if (method === "GET" && path === "/api/sync") return mockSyncStatus(accounts) as T
   if (method === "POST" && path.endsWith("/actions/preview")) {
-    const c = JSON.parse(init!.body as string) as { kind: string; address?: string; year?: number }
+    const c = JSON.parse(init!.body as string) as {
+      kind: string
+      address?: string
+      year?: number
+    }
     const o = mockOverview(id)
     const row =
-      c.kind === "sender"
-        ? o.senders.find((x) => x.address === c.address)
-        : o.years.find((y) => y.year === c.year)
+      c.kind === "sender" ? o.senders.find((x) => x.address === c.address) : o.years.find((y) => y.year === c.year)
     if (!row) throw new ApiError("There is no mail left that matches.", 409)
     return {
       messages: row.messages,
@@ -337,7 +479,11 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
   }
   if (method === "POST" && /\/actions$/.test(path)) {
     await wait(900)
-    const req = JSON.parse(init!.body as string) as { kind: string; criteria: { kind: string; address?: string; year?: number }; expected: number }
+    const req = JSON.parse(init!.body as string) as {
+      kind: string
+      criteria: { kind: string; address?: string; year?: number }
+      expected: number
+    }
     const gone = moved()
     if (req.criteria.kind === "sender") gone.senders.push(req.criteria.address!)
     else gone.years.push(req.criteria.year!)
@@ -359,6 +505,208 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
   if (path.startsWith("/api/google")) {
     const answer = mockGoogle(method, path, init, accounts)
     if (answer !== undefined) return answer as T
+  }
+  if (path.startsWith("/api/folders") || path === "/api/attachments/save") {
+    const FOLDERS_KEY = "cockatoo.mock.folders"
+    type MockFolder = {
+      id: number
+      name: string
+      path: string
+      createdAt: string
+      missing: boolean
+      tree: string[]
+    }
+    const folders = JSON.parse(sessionStorage.getItem(FOLDERS_KEY) ?? "[]") as MockFolder[]
+    const store = () => sessionStorage.setItem(FOLDERS_KEY, JSON.stringify(folders))
+    const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : {}
+    const fid = Number(path.match(/^\/api\/folders\/(\d+)/)?.[1])
+    const folder = folders.find((f) => f.id === fid)
+    const browse = (f: MockFolder, rel: string) => ({
+      folderId: f.id,
+      name: f.name,
+      root: f.path,
+      path: rel,
+      full: rel ? `${f.path}\\${rel.replaceAll("/", "\\")}` : f.path,
+      folders: f.tree
+        .filter(
+          (p) =>
+            (rel ? p.startsWith(rel + "/") : true) && p.split("/").length === (rel ? rel.split("/").length + 1 : 1),
+        )
+        .map((p) => p.split("/").pop()!)
+        .sort(),
+    })
+    if (method === "GET" && path === "/api/folders") return folders.map(({ tree: _t, ...f }) => f) as T
+    if (method === "POST" && path === "/api/folders") {
+      const p = String(body.path ?? "")
+        .trim()
+        .replace(/^"|"$/g, "")
+      if (!String(body.name ?? "").trim()) throw new ApiError("Give the folder a name, for example Expenses.", 400)
+      if (!/^[A-Za-z]:\\/.test(p))
+        throw new ApiError("Enter the full path, starting with a drive letter such as C:\\.", 400)
+      const f = {
+        id: Math.max(0, ...folders.map((x) => x.id)) + 1,
+        name: String(body.name).trim(),
+        path: p,
+        createdAt: new Date().toISOString(),
+        missing: false,
+        tree: ["2026-09", "2026-10", "Receipts"],
+      }
+      folders.push(f)
+      store()
+      return f as T
+    }
+    if (method === "DELETE" && folder) {
+      folders.splice(folders.indexOf(folder), 1)
+      store()
+      return undefined as T
+    }
+    if (method === "GET" && folder && path.includes("/browse")) {
+      return browse(folder, new URLSearchParams(path.split("?")[1]).get("path") ?? "") as T
+    }
+    if (method === "POST" && folder && path.endsWith("/subfolders")) {
+      const name = String(body.name ?? "").trim()
+      if (!name || /[\\/:*?"<>|]/.test(name) || name === "..")
+        throw new ApiError(`"${name}" cannot be a folder name.`, 400)
+      const rel = body.path ? `${body.path}/${name}` : name
+      if (!folder.tree.includes(rel)) folder.tree.push(rel)
+      store()
+      return browse(folder, rel) as T
+    }
+    if (method === "POST" && path === "/api/attachments/save") {
+      await wait(1200)
+      const f = folders.find((x) => x.id === Number(body.folderId))!
+      const dir = browse(f, String(body.path ?? "")).full
+      const keys = body.messages as {
+        accountId: number
+        uidValidity: number
+        uid: number
+      }[]
+      const messages = keys.map((key, i) =>
+        i % 3 === 2
+          ? {
+              key,
+              subject: "Lunch on Friday?",
+              files: [],
+              problem: "The message has no attachments.",
+            }
+          : {
+              key,
+              subject: "Your invoice",
+              files: [
+                {
+                  path: `${dir}\\${i === 0 ? "invoice.pdf" : `invoice (${i + 1}).pdf`}`,
+                  bytes: 48213,
+                },
+              ],
+              skipped: i === 0 ? ["a picture shown in the message itself (logo.png)"] : undefined,
+            },
+      )
+      const handled = loadHandled()
+      for (const m of messages) {
+        if (!m.files.length) continue
+        const h = { ...handled[mockKey(m.key)] }
+        h.savedTo = [dir]
+        h.savedFiles = (h.savedFiles ?? 0) + m.files.length
+        h.savedAt = new Date().toISOString()
+        handled[mockKey(m.key)] = h
+      }
+      sessionStorage.setItem(HANDLED_KEY, JSON.stringify(handled))
+      return {
+        folder: dir,
+        files: messages.reduce((n, m) => n + m.files.length, 0),
+        messages,
+      } as T
+    }
+  }
+  if (path.startsWith("/api/triage")) {
+    const TRIAGE_KEY = "cockatoo.mock.triage"
+    const saved = JSON.parse(sessionStorage.getItem(TRIAGE_KEY) ?? "{}") as Record<string, unknown>
+    if (method === "GET") {
+      const scope = new URLSearchParams(path.split("?")[1] ?? "").get("scope") ?? "all"
+      return (saved[scope] ?? null) as T
+    }
+    await wait(2000)
+    const scope = (JSON.parse(init!.body as string) as { scope: string }).scope
+    const inbox = mockInbox(accounts, true).messages.filter((m) => scope === "all" || String(m.accountId) === scope)
+    const unread = inbox.filter((m) => !m.seen)
+    const older: MailMessage = {
+      ...unread[0],
+      uid: 1,
+      fromName: "Thandi Mokoena",
+      fromAddr: "thandi@example.com",
+      subject: "Contract changes – need your sign-off",
+      receivedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    }
+    const picks = [
+      {
+        message: older,
+        priority: "now",
+        reason: "Thandi asks you to sign off the contract changes; she has waited three days.",
+        overdue: true,
+        signals: {
+          toYou: true,
+          ccYou: false,
+          repliesToYou: true,
+          wrote: 14,
+          automated: false,
+        },
+      },
+      ...(unread[0]
+        ? [
+            {
+              message: unread[0],
+              priority: "now",
+              reason: "Renée needs your comments on Thursday's draft.",
+              overdue: false,
+              signals: {
+                toYou: true,
+                ccYou: false,
+                repliesToYou: false,
+                wrote: 3,
+                automated: false,
+              },
+            },
+          ]
+        : []),
+      ...(unread[2]
+        ? [
+            {
+              message: unread[2],
+              priority: "today",
+              reason: "Check the invoice before it is due on Friday.",
+              overdue: false,
+              signals: {
+                toYou: false,
+                ccYou: true,
+                repliesToYou: false,
+                wrote: 0,
+                automated: false,
+              },
+            },
+          ]
+        : []),
+    ]
+    const result = {
+      id: Date.now(),
+      askedAt: new Date().toISOString(),
+      model: "claude-opus-5-5",
+      summary:
+        "Thandi is waiting on your sign-off of the contract changes, and Renée needs comments on Thursday's draft.",
+      picks,
+      sent: 41,
+      leftOut: 0,
+      leftAutomated: 312,
+      leftAnswered: 4,
+      textSent: (JSON.parse(init!.body as string) as { withText: boolean }).withText,
+      signalsPartial: false,
+      partial: false,
+      dropped: 0,
+      inputTokens: 3840,
+      outputTokens: 212,
+    }
+    saved[scope] = result
+    sessionStorage.setItem(TRIAGE_KEY, JSON.stringify(saved))
+    return result as T
   }
   if (method === "GET" && path === "/api/health") {
     return { ok: true, time: new Date().toISOString(), version: "mock" } as T

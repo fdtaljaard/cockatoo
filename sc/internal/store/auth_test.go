@@ -54,7 +54,8 @@ func TestMigrationSeven(t *testing.T) {
 	if err != nil || len(accounts) != 1 || accounts[0].Auth != AuthPassword {
 		t.Fatalf("accounts after migration: %+v %v", accounts, err)
 	}
-	if seen, err := s.StoredSeen(ctx, 1); err != nil || len(seen) != 1 {
+	// The copy of the inbox is a cache: migration 9 empties it again for the next sync to refill.
+	if seen, err := s.StoredSeen(ctx, 1); err != nil || len(seen) != 0 {
 		t.Fatalf("copy after migration: %v %v", seen, err)
 	}
 	if audit, err := s.Audit(ctx, 10); err != nil || len(audit) != 1 {

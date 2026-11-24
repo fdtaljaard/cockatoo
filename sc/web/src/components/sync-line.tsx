@@ -11,7 +11,8 @@ export function SyncLine({ status, error }: { status: SyncStatus | null; error: 
   }
   if (!status) return null
 
-  const reading = status.accounts.find((a) => a.state === "reading" && a.toRead > 0)
+  const reading = status.accounts.find((a) => (a.state === "reading" || a.state === "sent") && a.toRead > 0)
+  const sentErrors = status.accounts.filter((a) => a.sentError)
   const failed = status.accounts.filter((a) => a.state === "failed")
   const skipped = status.accounts.reduce((n, a) => n + a.skipped, 0)
 
@@ -20,7 +21,7 @@ export function SyncLine({ status, error }: { status: SyncStatus | null; error: 
       {status.running && (
         <p className="text-muted-foreground">
           {reading
-            ? `Reading your mailbox: ${reading.read.toLocaleString()} of ${reading.toRead.toLocaleString()} messages${
+            ? `${reading.state === "sent" ? "Reading your sent mail" : "Reading your mailbox"}: ${reading.read.toLocaleString()} of ${reading.toRead.toLocaleString()} messages${
                 status.accounts.length > 1 ? ` (${reading.email})` : ""
               }`
             : "Checking for new mail…"}
@@ -32,6 +33,13 @@ export function SyncLine({ status, error }: { status: SyncStatus | null; error: 
           {a.error}
         </p>
       ))}
+      {!status.running &&
+        sentErrors.map((a) => (
+          <p key={`sent-${a.accountId}`} className="text-muted-foreground">
+            {status.accounts.length > 1 ? `${a.email}: ` : ""}Your sent mail could not be read, so cockatoo cannot yet tell
+            who you write to. {a.sentError}
+          </p>
+        ))}
       {!status.running && skipped > 0 && (
         <p className="text-muted-foreground">
           {skipped.toLocaleString()} {skipped === 1 ? "message" : "messages"} could not be read from the server and

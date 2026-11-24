@@ -118,8 +118,10 @@ func (s *Store) DeleteAccount(ctx context.Context, id int64) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM message WHERE account_id = ?`, id); err != nil {
 		return fmt.Errorf("delete the messages of account %d: %w", id, err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM inbox_sync WHERE account_id = ?`, id); err != nil {
-		return fmt.Errorf("delete the sync state of account %d: %w", id, err)
+	for _, table := range []string{"inbox_sync", "sent_message", "sent_sync"} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE account_id = ?`, id); err != nil {
+			return fmt.Errorf("delete the copy of account %d: %w", id, err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("delete account %d: %w", id, err)

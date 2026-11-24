@@ -24,6 +24,9 @@ func (s *Service) StoredInbox(ctx context.Context) (InboxList, error) {
 	if err != nil {
 		return InboxList{}, err
 	}
+	if err := s.AttachHandled(ctx, msgs); err != nil {
+		return InboxList{}, err
+	}
 	return InboxList{Since: since, Messages: msgs}, nil
 }
 

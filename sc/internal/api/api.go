@@ -15,6 +15,7 @@ import (
 	"cockatoo/internal/account"
 	"cockatoo/internal/ai"
 	"cockatoo/internal/store"
+	"cockatoo/internal/triage"
 )
 
 // Handler builds the HTTP routes: /api/* for JSON, everything else is the single-page UI.
@@ -22,6 +23,8 @@ import (
 func Handler(st *store.Store, accounts *account.Service, assistant *ai.Service, ui fs.FS, version string) http.Handler {
 	mux := http.NewServeMux()
 	accountRoutes(mux, accounts)
+	folderRoutes(mux, accounts)
+	triageRoutes(mux, triage.New(st, assistant, accounts))
 	googleRoutes(mux, accounts)
 	aiRoutes(mux, assistant)
 

@@ -154,3 +154,20 @@ func TestHint(t *testing.T) {
 		t.Errorf("short hint %q", got)
 	}
 }
+
+func TestCompleteSendsShapeAndEffort(t *testing.T) {
+	f, base := newFake(t)
+	f.reply = message("end_turn", `{"ok":true}`, "null")
+	schema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`)
+	reply, err := NewClient(goodKey, DefaultModel, base).Complete(context.Background(), Request{Prompt: "x", Schema: schema, Effort: "medium"})
+	if err != nil || reply.Text != `{"ok":true}` || reply.InputTokens != 10 || reply.OutputTokens != 5 {
+		t.Fatalf("reply %+v %v", reply, err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cfg, _ := f.lastBody["output_config"].(map[string]any)
+	format, _ := cfg["format"].(map[string]any)
+	if cfg["effort"] != "medium" || format["type"] != "json_schema" || format["schema"] == nil || f.lastBody["fallbacks"] != "default" {
+		t.Fatalf("body %v", f.lastBody)
+	}
+}

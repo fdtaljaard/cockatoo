@@ -35,8 +35,10 @@ type Service struct {
 	server imap.Server
 	check  func(ctx context.Context, srv imap.Server, login imap.Login) (imap.Inbox, error)
 	dial   func(ctx context.Context, srv imap.Server, login imap.Login) (mailbox, error)
-	seal   func([]byte) ([]byte, error)
-	open   func([]byte) ([]byte, error)
+	// dialSent opens the Sent folder; nil in tests that do not need it.
+	dialSent func(ctx context.Context, srv imap.Server, login imap.Login) (mailbox, bool, error)
+	seal     func([]byte) ([]byte, error)
+	open     func([]byte) ([]byte, error)
 
 	openMover func(ctx context.Context, srv imap.Server, login imap.Login) (mover, error)
 
@@ -53,7 +55,8 @@ func New(st *store.Store) *Service { return NewFor(st, imap.Gmail) }
 // NewFor returns the service for another IMAP server. The tests use it to stand in for Gmail.
 func NewFor(st *store.Store, server imap.Server) *Service {
 	return &Service{
-		st: st, server: server, check: imap.CheckInbox, dial: dialSession, openMover: openMover, seal: secret.Seal, open: secret.Open,
+		st: st, server: server, check: imap.CheckInbox, dial: dialSession, dialSent: dialSentFolder, openMover: openMover,
+		seal: secret.Seal, open: secret.Open,
 		google: googleState{endpoint: googleEndpoint, open: openInBrowser, pending: map[string]*signIn{}},
 	}
 }

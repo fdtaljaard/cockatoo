@@ -79,6 +79,9 @@ type Message struct {
 	Received    time.Time // when the server received it (INTERNALDATE), in UTC
 	Seen        bool      // read
 	Unsubscribe Unsubscribe
+	Markers     Markers  // list and automated-mail headers
+	To, Cc      []string // recipients' addresses, lower case
+	InReplyTo   string   // the Message-ID this one answers, without angle brackets
 }
 
 // InboxState is every message in the inbox, by UID, with whether it is read.
@@ -101,6 +104,7 @@ type Session struct {
 	addr      string
 	ctx       context.Context
 	selected  *imap.SelectData
+	folder    string
 	closeOnce sync.Once
 	// Each command must finish within this; a stalled connection is closed rather than waited on.
 	CommandTimeout time.Duration
@@ -175,7 +179,7 @@ func (s *Session) Headers(uids []uint32) ([]Message, error) {
 		set.AddNum(imap.UID(u))
 	}
 	// PEEK: reading these header fields must not mark the message as read.
-	unsub := &imap.FetchItemBodySection{Specifier: imap.PartSpecifierHeader, HeaderFields: unsubscribeFields, Peek: true}
+	unsub := &imap.FetchItemBodySection{Specifier: imap.PartSpecifierHeader, HeaderFields: listFields, Peek: true}
 	var fetched []*imapclient.FetchMessageBuffer
 	err := s.timed(func() error {
 		var err error
@@ -193,11 +197,17 @@ func (s *Session) Headers(uids []uint32) ([]Message, error) {
 			UID:         uint32(m.UID),
 			Received:    m.InternalDate.UTC(),
 			Seen:        slices.Contains(m.Flags, imap.FlagSeen),
-			Unsubscribe: parseUnsubscribe(headerSection(m, unsub)),
+		}
+		if raw := headerSection(m, unsub); raw != nil {
+			msg.Unsubscribe, msg.Markers = parseUnsubscribe(raw), parseMarkers(raw)
 		}
 		if env := m.Envelope; env != nil {
 			msg.Subject = env.Subject
 			msg.MessageID = env.MessageID
+			msg.To, msg.Cc = addresses(env.To), addresses(env.Cc)
+			if len(env.InReplyTo) > 0 {
+				msg.InReplyTo = env.InReplyTo[0]
+			}
 			if len(env.From) > 0 {
 				msg.FromName = env.From[0].Name
 				msg.FromAddr = strings.ToLower(env.From[0].Addr())
@@ -301,4 +311,67 @@ func headerSection(m *imapclient.FetchMessageBuffer, asked *imap.FetchItemBodySe
 		return m.BodySection[0].Bytes
 	}
 	return nil
+}
+
+// addresses are the lower-case addresses of an envelope list, groups left out.
+func addresses(list []imap.Address) []string {
+	out := []string{}
+	for i := range list {
+		a := &list[i]
+		if a.IsGroupStart() || a.IsGroupEnd() || a.Mailbox == "" {
+			continue
+		}
+		out = append(out, strings.ToLower(a.Addr()))
+	}
+	return out
+}
+
+// OpenSent signs in and opens the Sent folder read-only: the folder the server marks \Sent, or
+// Gmail's name for it. found is false when there is none.
+func OpenSent(ctx context.Context, srv Server, login Login) (s *Session, found bool, err error) {
+	c, done, err := signIn(ctx, srv, login)
+	if err != nil {
+		return nil, false, err
+	}
+	s = &Session{c: c, done: done, addr: srv.Addr, ctx: ctx, CommandTimeout: defaultCommandTimeout}
+	var folders []Folder
+	err = s.timed(func() error {
+		list, err := c.List("", "*", nil).Collect()
+		for _, l := range list {
+			f := Folder{Name: l.Mailbox}
+			for _, a := range l.Attrs {
+				f.Attrs = append(f.Attrs, string(a))
+			}
+			folders = append(folders, f)
+		}
+		return err
+	})
+	if err != nil {
+		s.Close()
+		return nil, false, fmt.Errorf("list folders on %s: %w", srv.Addr, err)
+	}
+	name, err := chooseFolder(folders, Sent)
+	if err != nil {
+		s.Close()
+		return nil, false, nil
+	}
+	err = s.timed(func() error {
+		var err error
+		s.selected, err = c.Select(name, &imap.SelectOptions{ReadOnly: true}).Wait()
+		return err
+	})
+	if err != nil {
+		s.Close()
+		return nil, false, fmt.Errorf("open %s on %s: %w", name, srv.Addr, err)
+	}
+	s.folder = name
+	return s, true, nil
+}
+
+// Folder is the name of the folder the session has open.
+func (s *Session) Folder() string {
+	if s.folder == "" {
+		return "INBOX"
+	}
+	return s.folder
 }
