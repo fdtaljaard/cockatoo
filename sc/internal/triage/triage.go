@@ -52,6 +52,7 @@ type Service struct {
 	ai       aiClient
 	accounts *account.Service
 	texts    func(ctx context.Context, accountID int64, uids []uint32, max int) (map[uint32]string, error)
+	snippets func(ctx context.Context, accountID int64, uids []uint32, max int, withText bool) (map[uint32]account.Snippet, error)
 	now      func() time.Time
 }
 
@@ -74,7 +75,8 @@ func (g gate) Complete(ctx context.Context, r ai.Request) (ai.Reply, error) {
 
 // New returns the triage service.
 func New(st *store.Store, assistant *ai.Service, accounts *account.Service) *Service {
-	return &Service{st: st, ai: gate{assistant}, accounts: accounts, texts: accounts.MessageTexts, now: time.Now}
+	return &Service{st: st, ai: gate{assistant}, accounts: accounts, texts: accounts.MessageTexts,
+		snippets: accounts.MessageSnippets, now: time.Now}
 }
 
 // Pick is one message the AI says needs the user, with why.
@@ -174,6 +176,7 @@ type candidate struct {
 	store.Candidate
 	signals Signals
 	text    string
+	files   string // the names of its attachments, for the suggestions
 }
 
 // Run asks the AI which unread mail in a scope needs the user. withText sends the first lines of
@@ -298,9 +301,13 @@ func (s *Service) Run(ctx context.Context, scope string, withText bool) (Result,
 		CreatedAt: now, Kind: "triage", Scope: scope, Sent: len(kept), LeftOut: res.LeftOut, Partial: res.Partial,
 		TextSent: chars > 0, TextChars: chars, LeftAutomated: res.LeftAutomated, LeftAnswered: res.LeftAnswered,
 	}
+	skillsText, _, err := s.skillsContext(ctx)
+	if err != nil {
+		return Result{}, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	reply, err := s.ai.Complete(ctx, ai.Request{System: systemPrompt, Prompt: prompt, Schema: answerSchema, Effort: effort})
+	reply, err := s.ai.Complete(ctx, ai.Request{System: systemPrompt, Context: skillsText, Prompt: prompt, Schema: answerSchema, Effort: effort})
 	record.Model, record.InputTokens, record.OutputTokens = reply.Model, reply.InputTokens, reply.OutputTokens
 	if err != nil {
 		if errors.Is(err, ai.ErrOff) || errors.Is(err, ai.ErrNoKey) {
@@ -468,6 +475,9 @@ func buildPrompt(now time.Time, cs []candidate, leftOut int, accounts map[int64]
 			subject = "(no subject)"
 		}
 		fmt.Fprintf(&b, " | subject: %s", subject)
+		if f := clean(c.files, 300); f != "" {
+			fmt.Fprintf(&b, " | attachments: %s", f)
+		}
 		if t := clean(c.text, textChars+1); t != "" {
 			fmt.Fprintf(&b, " | text: %s", t)
 			chars += len([]rune(t))

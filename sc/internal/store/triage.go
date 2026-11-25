@@ -191,3 +191,49 @@ func (s *Store) LatestAIRequest(ctx context.Context, kind, scope string) (r AIRe
 	r.Model, r.Answer = model.String, answer.String
 	return r, true, nil
 }
+
+// CandidatesByKey returns these messages with the same facts about their senders as
+// TriageCandidates, read or not, newest first. Messages no longer in the copy are left out.
+func (s *Store) CandidatesByKey(ctx context.Context, keys []MessageKey) ([]Candidate, error) {
+	if len(keys) == 0 {
+		return []Candidate{}, nil
+	}
+	conds := make([]string, len(keys))
+	args := make([]any, 0, 3*len(keys))
+	for i, k := range keys {
+		conds[i] = "(m.account_id = ? AND m.uid_validity = ? AND m.uid = ?)"
+		args = append(args, k.AccountID, int64(k.UIDValidity), int64(k.UID))
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`WITH senders AS (
+		   SELECT account_id, coalesce(from_addr, '') AS addr, count(*) AS n, count(*) FILTER (WHERE seen) AS r,
+		          count(unsub_url) + count(unsub_mailto) > 0 AS bulk
+		   FROM message GROUP BY account_id, addr)
+		 SELECT m.account_id, m.uid_validity, m.uid, coalesce(m.message_id, ''), coalesce(m.from_name, ''),
+		        coalesce(m.from_addr, ''), coalesce(m.subject, ''), m.received_at, m.seen, s.n, s.r, s.bulk,
+		        coalesce(m.to_addrs, ''), coalesce(m.cc_addrs, ''), coalesce(m.in_reply_to, ''), coalesce(m.list_id, ''),
+		        coalesce(m.precedence, ''), coalesce(m.auto_submitted, ''),
+		        m.unsub_url IS NOT NULL OR m.unsub_mailto IS NOT NULL
+		 FROM message m JOIN senders s ON s.account_id = m.account_id AND s.addr = coalesce(m.from_addr, '')
+		 WHERE `+strings.Join(conds, " OR ")+` ORDER BY m.received_at DESC, m.uid DESC`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("read messages: %w", err)
+	}
+	defer rows.Close()
+	out := []Candidate{}
+	for rows.Next() {
+		var c Candidate
+		var validity, uid int64
+		var to, cc string
+		if err := rows.Scan(&c.AccountID, &validity, &uid, &c.MessageID, &c.FromName, &c.FromAddr, &c.Subject,
+			&c.ReceivedAt, &c.Seen, &c.SenderMessages, &c.SenderRead, &c.Bulk,
+			&to, &cc, &c.InReplyTo, &c.ListID, &c.Precedence, &c.AutoSubmitted, &c.HasUnsubscribe); err != nil {
+			return nil, fmt.Errorf("read messages: %w", err)
+		}
+		c.To, c.Cc = splitAddrs(to), splitAddrs(cc)
+		c.UIDValidity, c.UID = uint32(validity), uint32(uid)
+		c.ReceivedAt = c.ReceivedAt.UTC()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}

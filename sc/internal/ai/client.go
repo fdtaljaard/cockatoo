@@ -62,7 +62,10 @@ type Reply struct {
 // Request is one message to Claude.
 type Request struct {
 	System string
-	Prompt string
+	// Context, when set, follows System as a second system block: what the user has taught the
+	// agent (its skills). It changes rarely, so it is cached with System.
+	Context string
+	Prompt  string
 	// Schema, when set, is the JSON schema the answer must follow (structured outputs); the
 	// reply's Text is then that JSON. Every object needs "additionalProperties": false.
 	Schema json.RawMessage
@@ -88,6 +91,10 @@ func (c *Client) Complete(ctx context.Context, r Request) (Reply, error) {
 	}
 	if r.System != "" {
 		params.System = []anthropic.BetaTextBlockParam{{Text: r.System}}
+	}
+	if r.Context != "" {
+		params.System = append(params.System, anthropic.BetaTextBlockParam{
+			Text: r.Context, CacheControl: anthropic.NewBetaCacheControlEphemeralParam()})
 	}
 	if r.Effort != "" {
 		params.OutputConfig.Effort = anthropic.BetaOutputConfigEffort(r.Effort)

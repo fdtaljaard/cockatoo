@@ -141,6 +141,41 @@ func folderRoutes(mux *http.ServeMux, accounts *account.Service) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// The email agent's skills (SCOPE.md, section 7a): list, save (new or a new version), remove.
+	mux.HandleFunc("GET /api/skills", func(w http.ResponseWriter, r *http.Request) {
+		list, err := accounts.ListSkills(r.Context())
+		if err != nil {
+			writeError(w, statusFor(err), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, list)
+	})
+	mux.HandleFunc("POST /api/skills", func(w http.ResponseWriter, r *http.Request) {
+		var in account.SkillInput
+		if err := readJSON(w, r, &in); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		k, err := accounts.SaveSkill(r.Context(), in)
+		if err != nil {
+			writeError(w, statusFor(err), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, k)
+	})
+	mux.HandleFunc("DELETE /api/skills/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || id <= 0 {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("skill id must be a positive number, not %q", r.PathValue("id")))
+			return
+		}
+		if err := accounts.RemoveSkill(r.Context(), id); err != nil {
+			writeError(w, statusFor(err), err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// Moves chosen messages to Gmail's Trash; audited.
 	mux.HandleFunc("POST /api/messages/delete", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

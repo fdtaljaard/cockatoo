@@ -80,10 +80,82 @@ An **External** app (anyone with a Google account) works the same way but, while
 to 100 listed test users, and their sign-in reportedly lapses after 7 days. Publishing it for everyone
 needs Google's review, which for full mail access includes a security assessment.
 
+## Your lists: Reply, Attention, Save, Unsorted
+
+Cockatoo is organised by what mail asks of you (SCOPE.md, section 8a). Down the left side of the window
+are four lists, each with the number of open messages in it; the rest of the app (Inbox, Clean up,
+Folders, Rules, Mail accounts, AI) sits below them. On a narrow window the same navigation runs across
+the top.
+
+- **Reply**: someone is waiting on an answer from you. **Attention**: read it and act on it; nobody
+  expects an answer. **Save**: it carries something to keep, an invoice, a statement. **Unsorted**: not
+  in a list yet. **Nothing to do**: it never needed you (a receipt, a shipping notice); it stays out of
+  the other lists, and you can look at it there.
+- **One list each.** Every message you have not dealt with is in exactly one list. **Last 30 days** is
+  the default; **All mail** shows every message of any age. Mail you have dealt with (replied, saved or
+  marked done) leaves its list; **Show done** brings it back.
+- **How mail gets there.** First, the list you put it in yourself, on its row: the latest choice wins.
+  Then your **rules**: mail from an address or a domain, and if you like with words in the subject, goes
+  to a list; an address beats a domain and a subject beats none. Anything else is Unsorted. Each row
+  says how it got there ("Your rule: mail from thandi@example.com", "You put it here").
+- **On every row.** In a list: **Not here**, **Done**, the trash, and in Reply **Reply** (opens the
+  conversation with its reply box), in Save **Save** (the save dialog). In Unsorted and in the new mail at
+  the top: the lists to put it in. Choose several rows to move them together, mark them done or delete
+  them.
+- **Not here.** Says a message does not belong where it is. Cockatoo asks where it goes (another list,
+  Nothing to do, or "not sure", back to Unsorted), and then how to handle mail like it from now on.
+- **Mail like it, from now on.** After you move a message by hand (or with Not here), cockatoo asks:
+  **Only this one**, **Always from** the address, or **Anyone at** the domain (not for gmail.com and the
+  like), optionally only when the subject has certain words. When a wide rule of yours put it in the
+  wrong list, it also offers to **narrow the rule**: keep it only for mail with certain words in the
+  subject ("takealot.com, only with *invoice*"); the sender's other mail goes back to Unsorted. To keep a
+  sender out of a list for good, give them a rule for another list or for Nothing to do: a narrower rule
+  beats a wider one. With the AI on, the same panel also proposes what your agent should remember (see
+  the next section). **Skills & rules**
+  lists every rule by list, moves one to another list, removes one, and adds one by hand. A new rule for
+  the same mail replaces the old one. Routines (below) are Save rules that also say where the
+  attachments go.
+- **New mail, in the moment.** At the top of every list, **Just in, not sorted** shows the mail of the
+  last day that no rule or choice has sorted, three at a time. When the AI is on, it suggests a list for
+  each, with a reason in pen ("Reply: Ann asks you to approve the budget"); the suggested list is the
+  dark button, one click confirms it, the other lists are one click too. A suggestion of "nothing to do"
+  confirms as **Done**.
+- **Unsorted is a task.** **Suggest lists** asks the AI about every message there that has no suggestion
+  yet (40 at a time); **Confirm all** takes every suggestion at once; or confirm and change them one by
+  one.
+- **What the AI reads.** Sender, subject, date, the facts the triage uses (sent to you or on CC, answers
+  your mail, how often you write to the sender), the **names** of the attachments, and, if "Include the
+  first lines" is on (in What needs you now), the first lines of the text. Each message is asked about
+  **once**: its suggestion is kept and shown again, never paid for twice. Every request is recorded
+  (`ai_request`, kind `sort`). The AI only suggests: nothing moves until you click.
+- **Nothing in Gmail changes.** Moving mail between lists, rules and suggestions live in DuckDB
+  (`sort_mark`, insert-only; `suggestion`; rules in `routine`). The mail stays where it is in Gmail.
+
+## Your email agent and its skills
+
+Cockatoo's AI is one email agent (SCOPE.md, section 7a). It knows how you work through **skills**:
+short notes in your own words, each with a name, who it is for, and what to do ("Invoices go to Save;
+order confirmations and shipping notices need nothing").
+
+- **Where.** **Skills & rules** in the navigation: every skill to read, **Edit**, **Remove**, or **Add a
+  skill**; the rules below them. Cockatoo starts you off with two to adjust, *What I keep* and *When I
+  reply*.
+- **The agent reads them every time** it suggests a list (and in What needs you now). A suggestion that
+  followed a skill says so: "Save: your Acme invoice · your skill “What I keep”". The skills go with the
+  request after cockatoo's own instructions and are cached by Anthropic, so sending them again is cheap.
+- **It learns from your corrections, with your OK.** After you move a message by hand or with **Not
+  here**, the panel adds **Teach your agent**: the agent proposes the smallest change to your skills
+  (a sentence added to the skill that covers it, or a short new skill), shown in full in a box you can
+  edit. **Remember** saves it; **Don't** drops it. Nothing is learned without that click: the proposal
+  is written by the AI from an email someone else wrote.
+- **Kept.** Every version of every skill, with who made it (you, the agent with your OK, or a starter)
+  and why, in `skill_version` (insert-only). Each teaching request is recorded (`ai_request`, kind
+  `teach`), like the others.
+
 ## Inbox
 
-The app opens on **Inbox** once an account is saved: the last 24 hours of every account's inbox, newest
-first, unread ones marked. **Clean up** shows the shape of a whole inbox: how much mail arrived each year,
+**Inbox**, below the lists, shows the last 24 hours of every account's inbox, newest first, unread
+ones marked, as before. **Clean up** shows the shape of a whole inbox: how much mail arrived each year,
 how much is unread, and the 25 senders with the most mail.
 
 Both read from cockatoo's copy of the inbox in DuckDB, which the **sync** keeps up to date. A sync starts
@@ -252,7 +324,7 @@ attachments**:
   skipped and said so. A message that has left the inbox since the last sync is skipped.
 - **Audited.** Each save is recorded like the other actions (below), with every file written.
 
-## Routines: mail you deal with the same way every time
+## Routines: Save rules that know the folder
 
 A routine is something you do every time a certain mail comes in. For now that is saving its
 attachments: "every time mail comes from acme.com with *invoice* in the subject, save its attachments
@@ -273,7 +345,8 @@ to Expenses, in a folder for the month".
   like automated mail, and tells the AI what the routine is, so it can say "save its attachment".
 - **Never on its own.** A routine matches on the sender's address as the mail states it, which anyone
   can write; so cockatoo points the mail out and you press Save. It does not save by itself.
-- **Routines** lists them, and removes one. A routine whose save folder was removed says so.
+- **Rules** lists them under Save, with their folder, and removes one. A routine whose save folder was
+  removed says so.
 - Kept in DuckDB, in the `routine` table. A one-click save is audited like any other.
 
 ## Done: mail you have dealt with

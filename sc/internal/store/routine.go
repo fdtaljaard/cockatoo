@@ -16,15 +16,16 @@ type Routine struct {
 	ID        int64     `json:"id"`
 	From      string    `json:"from"`              // a lower-case address ("billing@acme.com") or domain ("acme.com")
 	Subject   string    `json:"subject,omitempty"` // lower-case text the subject must contain; "" for any
-	Action    string    `json:"action"`            // "save"; later "reply" and "look"
+	Action    string    `json:"action"`            // the list it puts mail in: ListReply, ListAttention or ListSave
 	FolderID  int64     `json:"folderId,omitempty"`
 	Path      string    `json:"path"`            // inside the save folder ("/"-separated); with Dated, where the dated folder goes
 	Dated     string    `json:"dated,omitempty"` // "month" or "day": a subfolder named for the mail's date; "" for none
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// The actions a routine can have. Only saving is offered for now.
-const RoutineSave = "save"
+// RoutineSave is the action of a routine that saves attachments, which is also the Save list: a
+// routine is a rule for the Save list that can say where the attachments go.
+const RoutineSave = ListSave
 
 // RoutineMatch is how a routine applies to one message: where its attachments go.
 type RoutineMatch struct {
@@ -96,7 +97,7 @@ func Matcher(routines []Routine, folders map[int64]SaveFolder) func(Message) *Ro
 		var best *Routine
 		for i := range routines {
 			r := &routines[i]
-			if m.ReceivedAt.Before(r.CreatedAt) || !r.Matches(m) {
+			if r.Action != RoutineSave || r.FolderID == 0 || m.ReceivedAt.Before(r.CreatedAt) || !r.Matches(m) {
 				continue
 			}
 			if best == nil || r.specific() > best.specific() || (r.specific() == best.specific() && r.ID > best.ID) {
@@ -147,6 +148,17 @@ func (s *Store) ListRoutines(ctx context.Context) ([]Routine, error) {
 	return out, rows.Err()
 }
 
+// ReplaceRules removes the rules for exactly this mail (address or domain, and subject), whatever
+// list they put it in, so a new rule for it is the only one.
+func (s *Store) ReplaceRules(ctx context.Context, from, subject string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM routine WHERE match_from = ? AND coalesce(match_subject, '') = ?`, from, subject); err != nil {
+		return fmt.Errorf("replace rules: %w", err)
+	}
+	return nil
+}
+
 // ErrDuplicateRoutine means a routine for the same mail and action is already there.
 var ErrDuplicateRoutine = errors.New("there is already a routine for this mail")
 
@@ -167,7 +179,7 @@ func (s *Store) AddRoutine(ctx context.Context, r Routine) (Routine, error) {
 	if err := s.db.QueryRowContext(ctx,
 		`INSERT INTO routine (match_from, match_subject, action, folder_id, path, dated, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-		r.From, nullable(r.Subject), r.Action, r.FolderID, r.Path, nullable(r.Dated), r.CreatedAt).Scan(&r.ID); err != nil {
+		r.From, nullable(r.Subject), r.Action, nullableID(r.FolderID), nullable(r.Path), nullable(r.Dated), r.CreatedAt).Scan(&r.ID); err != nil {
 		return Routine{}, fmt.Errorf("add routine: %w", err)
 	}
 	return r, nil
@@ -186,4 +198,12 @@ func (s *Store) DeleteRoutine(ctx context.Context, id int64) error {
 		return fmt.Errorf("remove routine %d: %w", id, err)
 	}
 	return nil
+}
+
+// nullableID stores 0 as NULL.
+func nullableID(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
 }

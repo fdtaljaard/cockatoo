@@ -149,16 +149,19 @@
     box-shadow: var(--sheet-shadow);
 }
 
-/* The heading of a part of the page, set small like a column head on a printout. */
-.section-head {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
+/* The heading of a part of the page, set small like a column head on a printout. In the
+   components layer, so a utility such as "hidden" still wins. */
+@layer components {
+    .section-head {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
+    }
 }
 
 /* The highlighter swipe across what needs you. It goes on line by line, a touch ragged at the ends

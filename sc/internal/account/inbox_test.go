@@ -186,6 +186,19 @@ func (f *fakeBox) Bodies(uids []uint32) (map[uint32]imapc.Body, error) {
 	return out, nil
 }
 
+func (f *fakeBox) Attachments(uids []uint32) (map[uint32][]imapc.AttachmentInfo, error) {
+	if f.offline {
+		return nil, errors.New("could not reach imap.gmail.com:993")
+	}
+	out := map[uint32][]imapc.AttachmentInfo{}
+	for _, u := range uids {
+		if m, ok := f.headers[u]; ok && strings.Contains(strings.ToLower(m.Subject), "invoice") {
+			out[u] = []imapc.AttachmentInfo{{Name: "invoice.pdf", Size: 41_000}}
+		}
+	}
+	return out, nil
+}
+
 func newFake(n int) *fakeBox {
 	f := &fakeBox{inbox: imapc.InboxState{UIDValidity: 3}, headers: map[uint32]imapc.Message{}, broken: map[uint32]bool{}}
 	for i := 1; i <= n; i++ {

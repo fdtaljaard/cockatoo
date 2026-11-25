@@ -99,8 +99,12 @@ func TestRoutineRoutes(t *testing.T) {
 	if code, b := do(t, h, "POST", "/api/routines", routine); code != http.StatusCreated || !strings.Contains(b, `"from":"acme.example"`) || !strings.Contains(b, `"subject":"invoice"`) {
 		t.Fatalf("add: %d %s", code, b)
 	}
-	if code, _ := do(t, h, "POST", "/api/routines", routine); code != http.StatusConflict {
-		t.Fatalf("duplicate: %d", code)
+	// A second rule for the same mail replaces the first: the same mail never has two lists.
+	if code, _ := do(t, h, "POST", "/api/routines", routine); code != http.StatusCreated {
+		t.Fatalf("replace: %d", code)
+	}
+	if _, b := do(t, h, "GET", "/api/routines", nil); strings.Count(b, `"from":"acme.example"`) != 1 {
+		t.Fatalf("replaced, not added: %s", b)
 	}
 
 	a, err := st.AddAccount(ctx, store.Account{Provider: "gmail", Name: "Me", Email: "me@example.com"}, []byte("sealed"))
@@ -116,7 +120,7 @@ func TestRoutineRoutes(t *testing.T) {
 	}
 	month := arrived.Local().Format("2006-01")
 	code, b := do(t, h, "GET", "/api/inbox", nil)
-	if code != 200 || strings.Count(b, `"routineId":1`) != 2 || !strings.Contains(b, `"name":"`+month+`"`) || !strings.Contains(b, `"waiting":[{`) {
+	if code != 200 || strings.Count(b, `"routineId":2`) != 2 || !strings.Contains(b, `"name":"`+month+`"`) || !strings.Contains(b, `"waiting":[{`) {
 		t.Fatalf("inbox: %d %s", code, b) // once on the row, once in the waiting list
 	}
 	key := map[string]any{"accountId": a.ID, "uidValidity": 7, "uid": 1}
@@ -129,7 +133,7 @@ func TestRoutineRoutes(t *testing.T) {
 	if code, b := do(t, h, "GET", "/api/routines", nil); code != 200 || !strings.Contains(b, `"folderName":"Expenses"`) || !strings.Contains(b, `"missing":false`) {
 		t.Fatalf("list: %d %s", code, b)
 	}
-	if code, _ := do(t, h, "DELETE", "/api/routines/1", nil); code != http.StatusNoContent {
+	if code, _ := do(t, h, "DELETE", "/api/routines/2", nil); code != http.StatusNoContent {
 		t.Fatalf("remove: %d", code)
 	}
 }

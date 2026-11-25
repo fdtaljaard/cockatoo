@@ -22,6 +22,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Working } from "@/components/working"
 import { TriagePanel } from "@/components/triage-panel"
 import { useSync } from "@/hooks/use-sync"
+import { when } from "@/lib/format"
 import { matchWhere } from "@/lib/routine"
 import { cn, tabClass as tab } from "@/lib/utils"
 
@@ -719,21 +720,6 @@ function HandledLine({ h }: { h: Handled }) {
       <span className="min-w-0 break-all">{parts.join(" · ")}</span>
     </p>
   )
-}
-
-// "14:05" today, "Yesterday 14:05", "19 Nov" this year, "19 Nov 2025" before.
-function when(iso: string): string {
-  const d = new Date(iso)
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-  const today = new Date()
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
-  if (d.toDateString() === today.toDateString()) return time
-  if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`
-  return d.toLocaleDateString([], {
-    day: "numeric",
-    month: "short",
-    year: d.getFullYear() === today.getFullYear() ? undefined : "numeric",
-  })
 }
 
 // The unread count on an account button; nothing when there is none.

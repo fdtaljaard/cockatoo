@@ -12,6 +12,12 @@ import {
   type Handled,
   type Inbox,
   type InboxList,
+  type ListName,
+  type ListsView,
+  type Proposal,
+  type Skill,
+  type SkillInput,
+  type Suggestion,
   type MailMessage,
   type MessageKey,
   type ConversationMessage,
@@ -37,6 +43,24 @@ if (demo && !sessionStorage.getItem("cockatoo.mock.accounts")) {
     ]),
   )
   sessionStorage.setItem("cockatoo.mock.refreshed", "1")
+  sessionStorage.setItem(
+    "cockatoo.mock.routines",
+    JSON.stringify([
+      { id: 1, from: "thandi@example.com", action: "reply", folderId: 0, path: "", createdAt: at, missing: false },
+      {
+        id: 2,
+        from: "example.com",
+        subject: "invoice",
+        action: "save",
+        folderId: 0,
+        path: "",
+        createdAt: at,
+        missing: false,
+      },
+      { id: 3, from: "patel.example", action: "attention", folderId: 0, path: "", createdAt: at, missing: false },
+      { id: 4, from: "takealot.example", action: "save", folderId: 0, path: "", createdAt: at, missing: false },
+    ]),
+  )
   sessionStorage.setItem("cockatoo.mock.sync", JSON.stringify({ startedAt: Date.now() - 60_000, ms: 1 })) // read already
   sessionStorage.setItem(
     AI_KEY,
@@ -174,19 +198,107 @@ function mockOlder(accounts: Account[]): MailMessage[] {
 const ROUTINES_KEY = "cockatoo.mock.routines"
 const loadRoutines = () => JSON.parse(sessionStorage.getItem(ROUTINES_KEY) ?? "[]") as Routine[]
 function mockMatch(m: MailMessage): RoutineMatch | undefined {
-  const from = m.fromAddr.toLowerCase()
   const r = loadRoutines()
-    .filter(
-      (r) =>
-        (r.from.includes("@") ? from === r.from : from.endsWith("@" + r.from)) &&
-        (!r.subject || m.subject.toLowerCase().includes(r.subject)),
-    )
+    .filter((r) => r.action === "save" && r.folderId > 0 && ruleMatches(r, m))
     .pop()
   if (!r) return undefined
   const d = new Date(m.receivedAt)
   const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
   const name = r.dated === "month" ? month : r.dated === "day" ? `${month}-${String(d.getDate()).padStart(2, "0")}` : ""
   return { routineId: r.id, action: "save", folderId: r.folderId, folderName: r.folderName, parent: r.path, name }
+}
+
+function ruleMatches(r: Routine, m: MailMessage): boolean {
+  const from = m.fromAddr.toLowerCase()
+  return (
+    (r.from.includes("@") ? from === r.from : from.endsWith("@" + r.from)) &&
+    (!r.subject || m.subject.toLowerCase().includes(r.subject))
+  )
+}
+
+// The last month of mail beyond the 24 hours, for the lists.
+function mockMonth(accounts: Account[]): MailMessage[] {
+  const now = Date.now()
+  const a = accounts[0]
+  if (!a) return []
+  const month: [hours: number, name: string, addr: string, subject: string, seen: boolean][] = [
+    [26, "Lindiwe Khumalo", "lindiwe@example.com", "Quote for the garden wall", false],
+    [52, "Dr Patel's rooms", "reception@patel.example", "Appointment reminder: Thursday 10:30", true],
+    [74, "Thandi Mokoena", "thandi@example.com", "Contract changes – need your sign-off", false],
+    [98, "Takealot", "orders@takealot.example", "Your order has shipped", true],
+    [146, "City of Cape Town", "accounts@capetown.example", "Your municipal account for November", false],
+    [220, "Sipho Dlamini", "sipho@example.com", "Can you send the signed lease?", true],
+    [400, "Discovery", "statements@discovery.example", "Your monthly statement is ready", true],
+  ]
+  return notDeleted(
+    month.map(([hours, fromName, fromAddr, subject, seen], i) => ({
+      accountId: a.id,
+      uidValidity: 1,
+      uid: 70 - i,
+      messageId: `${a.id}-month${i}@example.com`,
+      fromName,
+      fromAddr,
+      subject,
+      receivedAt: new Date(now - hours * 3_600_000).toISOString(),
+      seen,
+    })),
+  )
+}
+
+// Where the user put each message, by key, and the AI's suggestions.
+const SORT_KEY = "cockatoo.mock.sorted"
+const SUGGEST_KEY = "cockatoo.mock.suggested"
+const loadSorted = () =>
+  JSON.parse(sessionStorage.getItem(SORT_KEY) ?? "{}") as Record<string, { list: ListName; by: "you" | "ai" }>
+const loadSuggested = () => JSON.parse(sessionStorage.getItem(SUGGEST_KEY) ?? "{}") as Record<string, Suggestion>
+
+// The agent's skills, starting with cockatoo's two starters.
+const SKILLS_KEY = "cockatoo.mock.skills"
+function loadSkills(): Skill[] {
+  const saved = sessionStorage.getItem(SKILLS_KEY)
+  if (saved) return JSON.parse(saved) as Skill[]
+  const at = new Date().toISOString()
+  return [
+    {
+      id: 1,
+      name: "What I keep",
+      applies: "Mail with attachments: invoices, statements, receipts and other documents.",
+      instructions:
+        "Invoices, statements, payslips, contracts, policies and tax documents I need for my records go to Save. Order confirmations, shipping notices, tickets and marketing PDFs need nothing, even with an attachment.",
+      madeBy: "cockatoo",
+      note: "a starter skill: change it to how you work",
+      updatedAt: at,
+    },
+    {
+      id: 2,
+      name: "When I reply",
+      applies: "Mail from people, not machines.",
+      instructions:
+        "If someone asks me a question, asks me to decide, approve or send something, or is waiting on me, it goes to Reply. If I am only on CC and nobody asks me anything by name, it goes to Attention at most.",
+      madeBy: "cockatoo",
+      note: "a starter skill: change it to how you work",
+      updatedAt: at,
+    },
+  ]
+}
+
+// What the mock AI suggests, from the subject and sender alone.
+function mockSuggest(m: MailMessage): Suggestion {
+  const s = m.subject.toLowerCase()
+  const at = new Date().toISOString()
+  const who = m.fromName || m.fromAddr
+  if (/invoice|statement|account for|receipt/.test(s))
+    return { list: "save", reason: `A document from ${who} to keep, with a PDF.`, skill: "What I keep", at }
+  if (/newsletter|build passed|shipped|digest/.test(s) || !m.subject)
+    return { list: "done", reason: "A notification; nothing for you to do.", at }
+  if (s.includes("?") || /sign-off|quote|draft/.test(s))
+    return {
+      list: "reply",
+      reason: `${who.split(" ")[0]} is waiting on an answer from you.`,
+      skill: "When I reply",
+      at,
+    }
+  return { list: "attention", reason: "Worth reading; no answer is expected.", at }
 }
 
 // A mailbox of about 11,000 messages over fifteen years, read by a sync that takes a few seconds
@@ -641,22 +753,21 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
       if (!from.includes("."))
         throw new ApiError(`${from || "That"} does not look like a domain, such as acme.com.`, 400)
       const subject = b.subject.trim().toLowerCase()
-      if (routines.some((r) => r.from === from && (r.subject ?? "") === subject))
-        throw new ApiError("there is already a routine for this mail", 409)
+      const others = routines.filter((r) => !(r.from === from && (r.subject ?? "") === subject))
       const folders = JSON.parse(sessionStorage.getItem("cockatoo.mock.folders") ?? "[]") as SaveFolder[]
       const r: Routine = {
         id: Math.max(0, ...routines.map((x) => x.id)) + 1,
         from,
         subject: subject || undefined,
-        action: "save",
-        folderId: b.folderId,
+        action: b.list ?? "save",
+        folderId: (b.list ?? "save") === "save" ? b.folderId : 0,
         path: b.path,
         dated: b.dated || undefined,
         createdAt: new Date().toISOString(),
         folderName: folders.find((f) => f.id === b.folderId)?.name,
         missing: false,
       }
-      sessionStorage.setItem(ROUTINES_KEY, JSON.stringify([...routines, r]))
+      sessionStorage.setItem(ROUTINES_KEY, JSON.stringify([...others, r]))
       return r as T
     }
     if (method === "DELETE") {
@@ -664,6 +775,144 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
       sessionStorage.setItem(ROUTINES_KEY, JSON.stringify(routines.filter((r) => r.id !== id)))
       return undefined as T
     }
+  }
+  if (method === "GET" && path.startsWith("/api/lists")) {
+    const q = new URLSearchParams(path.split("?")[1] ?? "")
+    const want = (q.get("list") ?? "unsorted") as ListName
+    const all = q.get("all") === "1"
+    const account = q.get("account") ?? "all"
+    const showDone = q.get("done") === "1"
+    const handled = loadHandled()
+    const sorted = loadSorted()
+    const suggested = loadSuggested()
+    const rules = loadRoutines()
+    const now = Date.now()
+    const everything = [...mockInbox(accounts, true).messages, ...mockMonth(accounts), ...mockOlder(accounts)].filter(
+      (m) =>
+        (account === "all" || String(m.accountId) === account) &&
+        (all || now - new Date(m.receivedAt).getTime() < 30 * 86_400_000),
+    )
+    everything.sort((x, y) => y.receivedAt.localeCompare(x.receivedAt))
+    const view: ListsView = {
+      list: want,
+      all,
+      counts: { reply: 0, attention: 0, save: 0, unsorted: 0, ignore: 0 },
+      done: 0,
+      messages: [],
+      new: [],
+    }
+    for (const raw of everything) {
+      const key = mockKey(raw)
+      const h = handled[key]
+      const m: MailMessage = { ...raw }
+      if (h && Object.keys(h).length) m.handled = h
+      else {
+        const routine = mockMatch(m)
+        if (routine) m.routine = routine
+      }
+      const mark = sorted[key]
+      const rule = rules.filter((r) => ruleMatches(r, m)).pop()
+      m.sort = mark
+        ? { list: mark.list, by: mark.by }
+        : rule
+          ? { list: rule.action, by: "rule", ruleId: rule.id }
+          : { list: "unsorted" }
+      if (m.sort.list === "unsorted" && suggested[key]) m.suggestion = suggested[key]
+      const done = !!m.handled
+      if (!done) view.counts[m.sort.list]++
+      if (m.sort.list === want) {
+        if (done) view.done++
+        if (!done || showDone) view.messages.push(m)
+      }
+      if (!done && m.sort.list === "unsorted" && now - new Date(m.receivedAt).getTime() < 86_400_000) view.new.push(m)
+    }
+    return view as T
+  }
+  if (method === "POST" && path === "/api/messages/sort") {
+    await wait(250)
+    const b = JSON.parse(init!.body as string) as { messages: MessageKey[]; list: ListName; confirmed: boolean }
+    const sorted = loadSorted()
+    for (const k of b.messages) sorted[mockKey(k)] = { list: b.list, by: b.confirmed ? "ai" : "you" }
+    sessionStorage.setItem(SORT_KEY, JSON.stringify(sorted))
+    return undefined as T
+  }
+  if (path.startsWith("/api/skills")) {
+    const skills = loadSkills()
+    if (method === "GET") return skills as T
+    if (method === "POST") {
+      const b = JSON.parse(init!.body as string) as SkillInput
+      if (!b.name.trim()) throw new ApiError("Give the skill a name, such as Shops I buy from.", 400)
+      if (!b.instructions.trim()) throw new ApiError("Say what to do, in your own words.", 400)
+      const k: Skill = {
+        id: b.id || Math.max(2, ...skills.map((x) => x.id)) + 1,
+        name: b.name.trim(),
+        applies: b.applies.trim(),
+        instructions: b.instructions.trim(),
+        madeBy: b.fromAgent ? "agent" : "you",
+        note: b.note || undefined,
+        updatedAt: new Date().toISOString(),
+      }
+      sessionStorage.setItem(
+        SKILLS_KEY,
+        JSON.stringify([...skills.filter((x) => x.id !== k.id), k].sort((x, y) => x.id - y.id)),
+      )
+      return k as T
+    }
+    if (method === "DELETE") {
+      const id = Number(path.split("/").pop())
+      sessionStorage.setItem(SKILLS_KEY, JSON.stringify(skills.filter((x) => x.id !== id)))
+      return undefined as T
+    }
+  }
+  if (method === "POST" && path === "/api/teach") {
+    await wait(1400)
+    const b = JSON.parse(init!.body as string) as { message: MessageKey; from: ListName; to: ListName }
+    const pool = [...mockInbox(accounts, true).messages, ...mockMonth(accounts), ...mockOlder(accounts)]
+    const m = pool.find((x) => mockKey(x) === mockKey(b.message))
+    const who = m?.fromName || m?.fromAddr || "this sender"
+    const keep = loadSkills().find((k) => k.id === 1)
+    let p: Proposal
+    if (b.to === "ignore" && keep) {
+      p = {
+        action: "edit",
+        skillId: 1,
+        name: keep.name,
+        applies: keep.applies,
+        before: keep.instructions,
+        instructions: `${keep.instructions} Mail from ${who} about orders and deliveries needs nothing; only their invoices go to Save.`,
+        summary: `Mail from ${who} about orders and deliveries needs nothing; only their invoices go to Save.`,
+      }
+    } else if (b.to === "unsorted") {
+      p = { action: "none", summary: "Nothing general to learn from this one." }
+    } else {
+      p = {
+        action: "new",
+        name: `Mail from ${who}`,
+        applies: `Mail from ${who}.`,
+        instructions: `Mail from ${who} like “${m?.subject ?? ""}” goes to ${b.to === "reply" ? "Reply" : b.to === "save" ? "Save" : "Attention"}.`,
+        summary: `Mail like this from ${who} goes to ${b.to}.`,
+      }
+    }
+    return p as T
+  }
+  if (method === "POST" && path === "/api/suggest") {
+    const b = JSON.parse(init!.body as string) as { messages: MessageKey[]; withText: boolean }
+    const suggested = loadSuggested()
+    const pool = [...mockInbox(accounts, true).messages, ...mockMonth(accounts), ...mockOlder(accounts)]
+    const todo = b.messages.filter((k) => !suggested[mockKey(k)])
+    if (todo.length) await wait(1600)
+    for (const k of todo) {
+      const m = pool.find((x) => mockKey(x) === mockKey(k))
+      if (m) suggested[mockKey(k)] = mockSuggest(m)
+    }
+    sessionStorage.setItem(SUGGEST_KEY, JSON.stringify(suggested))
+    return {
+      suggestions: b.messages
+        .filter((k) => suggested[mockKey(k)])
+        .map((k) => ({ key: k, suggestion: suggested[mockKey(k)] })),
+      sent: todo.length,
+      leftOut: 0,
+    } as T
   }
   if (method === "POST" && path === "/api/messages/done") {
     const b = JSON.parse(init!.body as string) as {

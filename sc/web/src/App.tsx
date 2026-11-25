@@ -1,21 +1,36 @@
 import { useCallback, useEffect, useState } from "react"
+import { Bot, Brush, FolderOpen, Inbox as InboxIcon, Repeat, Users } from "lucide-react"
 
-import { api, useMock, type Account } from "@/api"
+import { api, useMock, type Account, type ListName, type ListsView } from "@/api"
 import { ActivityBar } from "@/components/activity-bar"
 import { Button } from "@/components/ui/button"
+import { Working } from "@/components/working"
+import { LISTS, isList } from "@/lib/lists"
 import { cn } from "@/lib/utils"
 import { AccountsScreen } from "@/screens/accounts"
 import { AIScreen } from "@/screens/ai"
 import { CleanupScreen } from "@/screens/cleanup"
 import { FoldersScreen } from "@/screens/folders"
-import { RoutinesScreen } from "@/screens/routines"
 import { InboxScreen } from "@/screens/inbox"
+import { ListScreen } from "@/screens/lists"
+import { RoutinesScreen } from "@/screens/routines"
 import { SetupScreen } from "@/screens/setup"
-import { Working } from "@/components/working"
 import mark from "@/assets/cockatoo-mark.png"
 
 type Accounts = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; list: Account[] }
-type View = "inbox" | "cleanup" | "folders" | "routines" | "accounts" | "ai"
+type View = ListName | "inbox" | "cleanup" | "folders" | "routines" | "accounts" | "ai"
+
+// The rest of the app, below the lists.
+const TOOLS: { id: View; label: string; short?: string; icon: typeof InboxIcon }[] = [
+  { id: "inbox", label: "Inbox", icon: InboxIcon },
+  { id: "cleanup", label: "Clean up", icon: Brush },
+  { id: "folders", label: "Folders", icon: FolderOpen },
+  { id: "routines", label: "Skills & rules", short: "Skills", icon: Repeat },
+  { id: "accounts", label: "Mail accounts", short: "Accounts", icon: Users },
+  { id: "ai", label: "AI", icon: Bot },
+]
+
+const VIEW_KEY = "cockatoo.view"
 
 export default function App() {
   // Keep one event stream open for as long as the page is shown. The exe stops a few
@@ -28,8 +43,18 @@ export default function App() {
 
   const [accounts, setAccounts] = useState<Accounts>({ kind: "loading" })
   const [adding, setAdding] = useState(false)
-  const [view, setView] = useState<View>("inbox")
+  const [view, setViewState] = useState<View>(() => {
+    const saved = localStorage.getItem(VIEW_KEY) ?? ""
+    return isList(saved) || TOOLS.some((t) => t.id === saved) ? (saved as View) : "reply"
+  })
   const [version, setVersion] = useState("")
+  const [counts, setCounts] = useState<ListsView["counts"] | null>(null)
+
+  const setView = (v: View) => {
+    setViewState(v)
+    localStorage.setItem(VIEW_KEY, v)
+    window.scrollTo(0, 0)
+  }
 
   const load = useCallback(() => {
     api
@@ -46,45 +71,78 @@ export default function App() {
     )
   }, [load])
 
+  // The counts beside the lists. A list screen keeps them up to date; elsewhere they are read once
+  // each time the screen changes.
+  const ready = accounts.kind === "ready" && accounts.list.length > 0
+  useEffect(() => {
+    if (!ready || isList(view)) return
+    api
+      .lists("unsorted", { all: localStorage.getItem("cockatoo.lists.all") === "true", account: "all", done: false })
+      .then(
+        (v) => setCounts(v.counts),
+        () => {},
+      )
+  }, [ready, view])
+
+  const onCounts = useCallback((c: ListsView["counts"]) => setCounts(c), [])
+
   // A page of mail reads best narrow; Clean up's tables need the width.
   const width = view === "cleanup" ? "max-w-[76rem]" : "max-w-[60rem]"
 
   return (
-    <div className="flex min-h-svh flex-col">
+    <div className="min-h-svh md:grid md:grid-cols-[15.5rem_minmax(0,1fr)]">
       <ActivityBar />
-      <header className="border-b bg-card">
-        <div className={cn("mx-auto flex items-center justify-between gap-x-3 px-4 py-3 sm:gap-x-6 sm:px-6", width)}>
-          <span className="flex shrink-0 items-center gap-2.5 text-lg font-bold tracking-[-0.02em]">
-            <img src={mark} alt="cockatoo" className="h-8 w-auto" />
-            <span aria-hidden>
-              cockatoo
-            </span>
-          </span>
-          <nav aria-label="Sections" className="flex min-w-0 gap-0.5 overflow-x-auto">
-            <NavButton current={view === "inbox"} onClick={() => setView("inbox")}>
-              Inbox
-            </NavButton>
-            <NavButton current={view === "cleanup"} onClick={() => setView("cleanup")}>
-              Clean up
-            </NavButton>
-            <NavButton current={view === "folders"} onClick={() => setView("folders")}>
-              Folders
-            </NavButton>
-            <NavButton current={view === "routines"} onClick={() => setView("routines")}>
-              Routines
-            </NavButton>
-            <NavButton current={view === "accounts"} onClick={() => setView("accounts")}>
-              <span className="sm:hidden">Accounts</span>
-              <span className="hidden sm:inline">Mail accounts</span>
-            </NavButton>
-            <NavButton current={view === "ai"} onClick={() => setView("ai")}>
-              AI
-            </NavButton>
-          </nav>
-        </div>
-      </header>
 
-      <main className={cn("mx-auto w-full flex-1 px-4 pt-6 pb-16 sm:px-6 sm:pt-8", width)}>
+      {/* The navigation: down the left side on a wide window, across the top on a narrow one. */}
+      <aside className="border-b bg-card md:sticky md:top-0 md:flex md:h-svh md:flex-col md:border-r md:border-b-0">
+        <div className="flex items-center gap-2.5 px-4 py-3 text-lg font-bold tracking-[-0.02em] md:px-5 md:pt-5 md:pb-6">
+          <img src={mark} alt="" className="h-8 w-auto" />
+          cockatoo
+        </div>
+        <nav
+          aria-label="Sections"
+          className="flex gap-0.5 overflow-x-auto px-2 pb-2 md:flex-col md:gap-5 md:overflow-y-auto md:px-3 md:pb-5"
+        >
+          <div className="flex gap-0.5 md:flex-col" role="group" aria-label="Your lists">
+            <p className="section-head hidden px-2.5 pb-1.5 md:block">Your mail</p>
+            {LISTS.map((l) => (
+              <NavItem
+                key={l.id}
+                current={view === l.id}
+                onClick={() => setView(l.id)}
+                icon={l.icon}
+                count={ready ? counts?.[l.id] : undefined}
+                strong={l.id !== "ignore"}
+              >
+                {l.label}
+              </NavItem>
+            ))}
+          </div>
+          <div className="flex gap-0.5 md:flex-col md:border-t md:pt-4">
+            {TOOLS.map((t) => (
+              <NavItem key={t.id} current={view === t.id} onClick={() => setView(t.id)} icon={t.icon}>
+                {t.short ? (
+                  <>
+                    <span className="md:hidden">{t.short}</span>
+                    <span className="hidden md:inline">{t.label}</span>
+                  </>
+                ) : (
+                  t.label
+                )}
+              </NavItem>
+            ))}
+          </div>
+        </nav>
+        {version && (
+          <p className="mt-auto hidden px-5 pb-4 text-xs text-muted-foreground md:block">
+            Only the emails that matter.
+            <br />
+            Build {version}
+          </p>
+        )}
+      </aside>
+
+      <main className={cn("mx-auto w-full px-4 pt-6 pb-16 sm:px-6 md:pt-8", width)}>
         <div className="sheet -mx-4 px-4 py-7 sm:mx-0 sm:rounded-lg sm:px-12 sm:py-10">
           {view === "ai" && <AIScreen />}
           {view === "folders" && <FoldersScreen />}
@@ -108,15 +166,22 @@ export default function App() {
             <SetupScreen first onSaved={load} />
           )}
 
-          {view === "cleanup" && accounts.kind === "ready" && accounts.list.length > 0 && (
-            <CleanupScreen accounts={accounts.list} />
+          {isList(view) && ready && (
+            <ListScreen
+              key={view}
+              list={view}
+              accounts={accounts.list}
+              onCounts={onCounts}
+              onGo={setView}
+              onGoToAI={() => setView("ai")}
+            />
           )}
 
-          {view === "inbox" && accounts.kind === "ready" && accounts.list.length > 0 && (
-            <InboxScreen accounts={accounts.list} onGoToAI={() => setView("ai")} />
-          )}
+          {view === "cleanup" && ready && <CleanupScreen accounts={accounts.list} />}
 
-          {view === "accounts" && accounts.kind === "ready" && accounts.list.length > 0 && adding && (
+          {view === "inbox" && ready && <InboxScreen accounts={accounts.list} onGoToAI={() => setView("ai")} />}
+
+          {view === "accounts" && ready && adding && (
             <SetupScreen
               first={false}
               onSaved={() => {
@@ -127,28 +192,29 @@ export default function App() {
             />
           )}
 
-          {view === "accounts" && accounts.kind === "ready" && accounts.list.length > 0 && !adding && (
+          {view === "accounts" && ready && !adding && (
             <AccountsScreen accounts={accounts.list} onAdd={() => setAdding(true)} onRemoved={load} />
           )}
         </div>
       </main>
-
-      {version && (
-        <footer className={cn("mx-auto w-full px-4 pb-6 text-xs text-muted-foreground sm:px-6", width)}>
-          cockatoo · Only the emails that matter. · Build {version}
-        </footer>
-      )}
     </div>
   )
 }
 
-function NavButton({
+// One place to go: a list with its count of open mail, or another screen.
+function NavItem({
   current,
   onClick,
+  icon: Icon,
+  count,
+  strong = false,
   children,
 }: {
   current: boolean
   onClick: () => void
+  icon: typeof InboxIcon
+  count?: number
+  strong?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -156,9 +222,25 @@ function NavButton({
       variant="ghost"
       aria-current={current ? "page" : undefined}
       onClick={onClick}
-      className={cn("px-2 sm:px-3.5", current ? "bg-secondary text-foreground" : "font-medium text-muted-foreground")}
+      className={cn(
+        "shrink-0 justify-start gap-2.5 px-2.5 md:w-full",
+        strong && "md:h-10 md:text-[0.9375rem]",
+        current ? "bg-secondary text-foreground" : "font-medium text-muted-foreground",
+      )}
     >
-      {children}
+      <Icon aria-hidden className={cn(strong && "md:size-[1.05rem]")} />
+      <span className="min-w-0 truncate">{children}</span>
+      {count !== undefined && (
+        <span
+          className={cn(
+            "ml-auto pl-2 text-xs tabular-nums",
+            count > 0 && strong ? "font-bold text-foreground" : "font-medium text-muted-foreground",
+          )}
+        >
+          {count.toLocaleString()}
+          <span className="sr-only"> open</span>
+        </span>
+      )}
     </Button>
   )
 }

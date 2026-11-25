@@ -100,3 +100,31 @@ func attachmentInfo(bs imap.BodyStructure) []AttachmentInfo {
 	})
 	return out
 }
+
+// Attachments reads only the structure of these messages, not their text: the names and sizes of
+// the files they carry. It is cheap enough to ask for many messages at once.
+func (s *Session) Attachments(uids []uint32) (map[uint32][]AttachmentInfo, error) {
+	out := map[uint32][]AttachmentInfo{}
+	for start := 0; start < len(uids); start += 100 {
+		part := uids[start:min(start+100, len(uids))]
+		set := imap.UIDSet{}
+		for _, u := range part {
+			set.AddNum(imap.UID(u))
+		}
+		var fetched []*imapclient.FetchMessageBuffer
+		err := s.timed(func() error {
+			var err error
+			fetched, err = s.c.Fetch(set, &imap.FetchOptions{
+				UID: true, BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
+			}).Collect()
+			return err
+		})
+		if err != nil {
+			return nil, fmt.Errorf("read attachment names on %s: %w", s.addr, err)
+		}
+		for _, m := range fetched {
+			out[uint32(m.UID)] = attachmentInfo(m.BodyStructure)
+		}
+	}
+	return out, nil
+}

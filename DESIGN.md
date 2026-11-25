@@ -313,9 +313,9 @@ A warm paper-and-ink palette with three marking colours, each owned by one kind 
 
 ## Layout
 
-A single centred column. The header bar runs full width on paper with a hairline bottom rule; its content and the sheet below share one width: 60rem for every screen, 76rem for Clean up, whose tables need it. The sheet sits 2rem below the header (1.5rem on narrow screens) with 4rem of desk under it, and is padded 2.5rem by 3rem inside.
+The left rail, then one centred column on the desk beside it. The sheet is 60rem wide for every screen, 76rem for Clean up, whose tables need it. It sits 2rem from the top (1.5rem on narrow screens) with 4rem of desk under it, and is padded 2.5rem by 3rem inside.
 
-Below 640px the sheet goes edge to edge: no rounding, 1rem side padding, 1.75rem top and bottom. The header hides the wordmark text and keeps only the bird mark, and the nav scrolls sideways rather than wrapping or collapsing into a menu. "Mail accounts" shortens to "Accounts".
+Below 768px the rail becomes the bar across the top. Below 640px the sheet goes edge to edge: no rounding, 1rem side padding, 1.75rem top and bottom. The nav scrolls sideways rather than wrapping or collapsing into a menu.
 
 Rhythm on the sheet: 2rem between sections, 1.25rem between a heading block and its tabs, search and groups, and list rows with 0.875rem of vertical padding separated by hairline rules. A row reads left to right: checkbox, unread dot or pen tick, then sender and time on one line, the subject below, then any routine, handled or account line. Actions sit in a fixed 7rem column on the right, so times and buttons line up whether a row has one button or two. Below 640px the time moves under the sender.
 
@@ -351,9 +351,22 @@ Compact and printed: semibold, small type, quiet until they matter.
 - **Hover / Focus / Active:** hover fills ghost and outline with paper tint and dims primary to 88%; focus draws a pen-blue border and a 3px pen ring at 50%; pressed buttons drop 1px. Disabled at 50% opacity. Transitions 150ms. A working button shows a spinner and a present-tense label ("Asking…", "Sending…", "Moving to Trash…").
 
 ### Navigation
-- **Header:** the bird mark (2rem tall) and the lowercase wordmark on the left, a flat row of ghost nav buttons on the right, on paper with a hairline rule beneath.
+- **The left rail (from 768px):** a 15.5rem column of paper down the left side, full height and fixed while the page scrolls, with a hairline rule on its right. At the top the bird mark (2rem) and the lowercase wordmark. Then the lists under the column head "Your mail": Reply, Attention, Save, Unsorted, each a 2.5rem ghost item at 0.9375rem with its icon (reply arrow, eye, paperclip, inbox tray) and its count of open mail at the right in tabular figures, ink and bold when above zero, muted at zero. Below a hairline rule, the rest of the app as smaller items: Inbox, Clean up, Folders, Rules, Mail accounts, AI. The tagline and build sit at the foot in muted caption. (Replaced the header bar on 2026-11-25, when the app became organised by lists; SCOPE.md, section 8a.)
+- **Narrow windows (below 768px):** the same rail becomes a bar across the top: the mark and wordmark, then one row of all the items, lists first with their counts, scrolling sideways. "Mail accounts" shortens to "Accounts".
 - **States:** inactive items in muted ink at weight 500; the current item gets a paper-tint fill, ink text and `aria-current="page"`.
-- **Account tabs:** text tabs with no box, a 2px underline in ink on the shown account, muted ink otherwise, the unread count beside each name in muted tabular figures.
+- **Account tabs:** text tabs with no box, a 2px underline in ink on the shown account, muted ink otherwise, the unread count beside each name in muted tabular figures. The lists use the same tabs for "Last 30 days / All mail" and for the accounts.
+
+### Lists (Reply, Attention, Save, Unsorted)
+- **Row:** as the Inbox row, with the actions on the right. In a list: Not here (ghost, with an x), Reply (in Reply) or Save (in Save), Done, and the trash. In Unsorted and the new-mail strip: the lists to sort into as small ghost buttons with their icons (labels from 1024px). Not here opens a line under the row, "Not Save. Where does it go?", with an outline button per other list and "Not sure". Below the subject, how it got there in muted caption ("Your rule: mail from …", "You put it here", "You took the AI's suggestion").
+- **Suggestion:** on an unsorted message the AI's list and reason are a pen note ("Reply: Ann asks you to approve the budget"); the subject wears the highlighter unless the suggestion is "nothing to do"; the suggested list is the one primary (navy) button and confirms in one click.
+- **Just in, not sorted:** at the top of every list but Unsorted, a section titled in 1.125rem bold with its count, three rows between hairline rules, and a ghost link to the rest in Unsorted.
+- **Mail like it, from now on:** after a move by hand, a bordered panel above the list: "Moved “subject” to Nothing to do. What about mail like it from now on?", a compact field for subject words, outline buttons "Always from address" and "Anyone at domain", and "Only this one". When a wide rule misplaced it, a second part under a hairline: "Keep that rule only for mail with [invoice] in the subject" and "Narrow the rule".
+- **Nothing to do** sits fifth in the rail, as a smaller muted item with an eye-off icon.
+- **Teach your agent:** the last part of that panel, under a hairline and the column head "Teach your agent". While the agent thinks, a Working line; then its summary as a pen note, a line saying which skill it changes (or that it is new), the whole skill text in an editable boxed field, the primary button Remember, a ghost Don't, and the caption "Written by the AI from this email. Read it before you approve; change it as you like." Once saved, a pen tick and "Remembered in your skill …".
+- **Suggestion line:** after the pen reason, "· your skill “…”" in muted caption sans when a skill decided it.
+
+### Skills & rules
+- The screen leads with "Your agent's skills": each skill as its name (semibold), "For …" in muted ink, the instructions at body size in a prose measure, and a caption saying who made this version (a starter, your words, or learned from your correction). Edit opens the same boxed form inline; Add a skill opens it above the list. The rules follow under a hairline, grouped by list.
 
 ### Inputs / Fields
 - **Boxed field:** paper fill, field-edge border, 0.4rem radius, 2.25rem tall; transparent in dark. Focus: pen border and 3px pen ring. Disabled: 50% opacity on a field-edge tint. Invalid: red border and ring.
@@ -392,7 +405,7 @@ Paper, 0.5rem round, padded 1.5rem, up to 24rem wide, with the sheet shadow over
 When nothing is left, the sheet shows the cockatoo bird (7rem tall), one semibold line, and a pen note under it.
 
 ### Logo
-The logo is the owner's file (`sc/Cockatoo_Logo.webp`), cropped, never redrawn. The header uses the bird mark (`cockatoo-mark.png`, 2rem tall, alt "cockatoo") with the lowercase wordmark in bold 1.125rem at -0.02em; the wordmark text hides below 640px. The first-run setup screen leads with the full bird (`cockatoo-bird.webp`, 6rem tall), the wordmark at 1.875rem bold and the tagline "Only the emails that matter." in muted ink, above a hairline rule. The all-clear state reuses the bird. The footer prints "cockatoo · Only the emails that matter. · Build …" in muted caption. The name is always lowercase in the UI.
+The logo is the owner's file (`sc/Cockatoo_Logo.webp`), cropped, never redrawn. The rail (or the bar on narrow windows) carries the bird mark (`cockatoo-mark.png`, 2rem tall) with the lowercase wordmark in bold 1.125rem at -0.02em. The first-run setup screen leads with the full bird (`cockatoo-bird.webp`, 6rem tall), the wordmark at 1.875rem bold and the tagline "Only the emails that matter." in muted ink, above a hairline rule. The all-clear state reuses the bird. The foot of the rail prints "Only the emails that matter." and the build in muted caption. The name is always lowercase in the UI.
 
 ## Do's and Don'ts
 

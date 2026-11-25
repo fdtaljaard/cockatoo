@@ -20,8 +20,10 @@ type Message struct {
 	Subject     string        `json:"subject"`
 	ReceivedAt  time.Time     `json:"receivedAt"` // UTC
 	Seen        bool          `json:"seen"`
-	Handled     *Handled      `json:"handled,omitempty"` // what the user did about it; filled where it is shown
-	Routine     *RoutineMatch `json:"routine,omitempty"` // the routine for it, while it is not dealt with; filled where it is shown
+	Handled     *Handled      `json:"handled,omitempty"`    // what the user did about it; filled where it is shown
+	Routine     *RoutineMatch `json:"routine,omitempty"`    // the routine for it, while it is not dealt with; filled where it is shown
+	Sort        *SortInfo     `json:"sort,omitempty"`       // the list it is in; filled where the lists are shown
+	Suggestion  *Suggestion   `json:"suggestion,omitempty"` // the AI's idea of its list, when asked; filled with Sort
 	Unsubscribe Unsubscribe   `json:"-"`
 	// What tells mail that needs a reply from mail to skim; kept, not shown as they are.
 	To            []string `json:"-"`

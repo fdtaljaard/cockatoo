@@ -25,6 +25,11 @@ control in one guided session, with the next session shorter than the first.
 
 ## Positioning
 
+Organised by what mail asks of you: Reply, Attention, Save, and what is not sorted yet. Rules the user
+makes on the row, and AI suggestions the user confirms, put mail in those lists (decided 2026-11-25;
+`sc/SCOPE.md`, section 8a). The AI is an email agent that learns how the user works as skills written
+in plain words, which the user reads, edits and approves (`sc/SCOPE.md`, section 7a).
+
 Flat instead of deep: every action is visible on the thing it acts on, with no menus or sub-menus. AI that
 suggests and asks instead of a table of rules: it looks at the mailbox, asks questions about what it sees,
 proposes, and remembers the user's decisions with their reasons so they never answer the same question

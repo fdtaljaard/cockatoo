@@ -290,6 +290,57 @@ var migrations = []string{
 	   dated         VARCHAR,
 	   created_at    TIMESTAMP NOT NULL
 	 );`,
+
+	// 12: the lists mail is sorted into (Reply, Attention, Save, Unsorted). sort_mark is where the
+	// user put a message, insert-only, the latest mark winning; suggestion is the AI's idea of
+	// where it belongs, kept so the same message is never asked about twice. Rules live in the
+	// routine table, its action naming the list.
+	`CREATE SEQUENCE IF NOT EXISTS seq_sort_mark START 1;
+	 CREATE TABLE IF NOT EXISTS sort_mark (
+	   id           INTEGER PRIMARY KEY DEFAULT nextval('seq_sort_mark'),
+	   account_id   INTEGER NOT NULL,
+	   uid_validity BIGINT NOT NULL,
+	   uid          BIGINT NOT NULL,
+	   list         VARCHAR NOT NULL,
+	   placed_by    VARCHAR NOT NULL,
+	   created_at   TIMESTAMP NOT NULL
+	 );
+	 CREATE SEQUENCE IF NOT EXISTS seq_suggestion START 1;
+	 CREATE TABLE IF NOT EXISTS suggestion (
+	   id            INTEGER PRIMARY KEY DEFAULT nextval('seq_suggestion'),
+	   account_id    INTEGER NOT NULL,
+	   uid_validity  BIGINT NOT NULL,
+	   uid           BIGINT NOT NULL,
+	   list          VARCHAR NOT NULL,
+	   reason        VARCHAR NOT NULL,
+	   ai_request_id BIGINT,
+	   created_at    TIMESTAMP NOT NULL
+	 );`,
+
+	// 13: the email agent's skills (SCOPE.md, section 7a): what it knows about how the user works, in
+	// plain words. Insert-only: every change is a new version; the latest version of a skill_id is the
+	// skill, and a version marked removed removes it. Two starter skills to adjust.
+	`CREATE SEQUENCE IF NOT EXISTS seq_skill_version START 1;
+	 CREATE SEQUENCE IF NOT EXISTS seq_skill START 3;
+	 CREATE TABLE IF NOT EXISTS skill_version (
+	   id           INTEGER PRIMARY KEY DEFAULT nextval('seq_skill_version'),
+	   skill_id     INTEGER NOT NULL,
+	   name         VARCHAR NOT NULL,
+	   applies      VARCHAR NOT NULL,
+	   instructions VARCHAR NOT NULL,
+	   made_by      VARCHAR NOT NULL,
+	   note         VARCHAR,
+	   removed      BOOLEAN NOT NULL,
+	   created_at   TIMESTAMP NOT NULL
+	 );
+	 ALTER TABLE suggestion ADD COLUMN skill VARCHAR;
+	 INSERT INTO skill_version (skill_id, name, applies, instructions, made_by, note, removed, created_at) VALUES
+	 (1, 'What I keep', 'Mail with attachments: invoices, statements, receipts and other documents.',
+	  'Invoices, statements, payslips, contracts, policies and tax documents I need for my records go to Save. Order confirmations, shipping notices, tickets and marketing PDFs need nothing, even with an attachment.',
+	  'cockatoo', 'a starter skill: change it to how you work', false, current_timestamp),
+	 (2, 'When I reply', 'Mail from people, not machines.',
+	  'If someone asks me a question, asks me to decide, approve or send something, or is waiting on me, it goes to Reply. If I am only on CC and nobody asks me anything by name, it goes to Attention at most.',
+	  'cockatoo', 'a starter skill: change it to how you work', false, current_timestamp);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -15,17 +15,27 @@ import (
 // a monthly invoice that came in while the user was away.
 const WaitingWindow = 60 * 24 * time.Hour
 
-// RoutineInput is a routine as the user sets it up.
+// RoutineInput is a rule as the user sets it up: which mail, and the list it goes to. A rule for
+// the Save list (a routine) can also say where the attachments go.
 type RoutineInput struct {
-	From     string `json:"from"`    // an address or a domain
-	Subject  string `json:"subject"` // optional: text the subject contains
-	FolderID int64  `json:"folderId"`
-	Path     string `json:"path"`  // inside the save folder; with Dated, where the dated folder goes
-	Dated    string `json:"dated"` // "", "month" or "day"
+	From     string `json:"from"`     // an address or a domain
+	Subject  string `json:"subject"`  // optional: text the subject contains
+	List     string `json:"list"`     // store.ListReply, ListAttention, ListSave or ListIgnore; "" is ListSave
+	FolderID int64  `json:"folderId"` // Save only, optional: where the attachments go
+	Path     string `json:"path"`     // inside the save folder; with Dated, where the dated folder goes
+	Dated    string `json:"dated"`    // "", "month" or "day"
 }
 
-// AddRoutine checks and saves a routine that saves attachments.
+// AddRoutine checks and saves a rule. It replaces any rule for exactly the same mail, so the same
+// mail never has two lists.
 func (s *Service) AddRoutine(ctx context.Context, in RoutineInput) (store.Routine, error) {
+	list := in.List
+	if list == "" {
+		list = store.ListSave
+	}
+	if list != store.ListReply && list != store.ListAttention && list != store.ListSave && list != store.ListIgnore {
+		return store.Routine{}, &InvalidError{"A rule puts mail in Reply, Attention, Save or Nothing to do."}
+	}
 	from := strings.ToLower(strings.TrimSpace(in.From))
 	from = strings.TrimPrefix(from, "@")
 	switch {
@@ -45,15 +55,21 @@ func (s *Service) AddRoutine(ctx context.Context, in RoutineInput) (store.Routin
 	if in.Dated != "" && in.Dated != "month" && in.Dated != "day" {
 		return store.Routine{}, &InvalidError{"A dated folder is by month or by day."}
 	}
-	f, err := s.st.GetSaveFolder(ctx, in.FolderID)
-	if err != nil {
+	r := store.Routine{From: from, Subject: subject, Action: list}
+	if list == store.ListSave && in.FolderID != 0 {
+		f, err := s.st.GetSaveFolder(ctx, in.FolderID)
+		if err != nil {
+			return store.Routine{}, err
+		}
+		if _, err := files.Resolve(f.Path, in.Path); err != nil {
+			return store.Routine{}, err
+		}
+		r.FolderID, r.Path, r.Dated = f.ID, strings.Trim(strings.ReplaceAll(in.Path, `\`, "/"), "/"), in.Dated
+	}
+	if err := s.st.ReplaceRules(ctx, from, subject); err != nil {
 		return store.Routine{}, err
 	}
-	if _, err := files.Resolve(f.Path, in.Path); err != nil {
-		return store.Routine{}, err
-	}
-	return s.st.AddRoutine(ctx, store.Routine{From: from, Subject: subject, Action: store.RoutineSave,
-		FolderID: f.ID, Path: strings.Trim(strings.ReplaceAll(in.Path, `\`, "/"), "/"), Dated: in.Dated})
+	return s.st.AddRoutine(ctx, r)
 }
 
 // RoutineStatus is a routine as the Routines screen shows it.
@@ -76,7 +92,7 @@ func (s *Service) ListRoutines(ctx context.Context) ([]RoutineStatus, error) {
 	out := make([]RoutineStatus, len(routines))
 	for i, r := range routines {
 		f, ok := folders[r.FolderID]
-		out[i] = RoutineStatus{Routine: r, FolderName: f.Name, Missing: !ok || f.Missing}
+		out[i] = RoutineStatus{Routine: r, FolderName: f.Name, Missing: r.FolderID != 0 && (!ok || f.Missing)}
 	}
 	return out, nil
 }

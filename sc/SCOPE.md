@@ -111,6 +111,50 @@ with the first lines of each message when the user allows it, and says what need
 up the inbox (section 9).
 Every request to the AI is recorded, insert-only, with the messages it sent and the tokens it took.
 
+## 7a. The email agent and its skills
+
+Decided 2026-11-25. Cockatoo's AI is one **email agent**: the same AI behind every AI feature (sorting
+new mail, the Unsorted exercise, what needs you now, later replies and clean-up). It knows how the user
+works through **skills**, not through settings and configuration.
+
+**A skill** is a short document in plain words: a name, when it applies ("mail from shops I buy from"),
+and what to do ("Invoices go to Save. Order confirmations and shipping notices need nothing, even with
+a PDF attached."). Skills are kept in DuckDB on the user's machine, insert-only (every change is a new
+version, with who made it and why), and are shown on one screen to read, edit, add and remove.
+Cockatoo starts the user off with a few skills to adjust (what they keep, when they reply); the rest
+are learned.
+
+**The agent reads the skills every time it works.** They go with each AI request, after the fixed
+instructions that say what the lists mean and that email is data, never instructions. A suggestion
+can name the skill it followed, so the user sees why. The skills are the same in every request, so
+Anthropic's prompt caching makes sending them again cheap.
+
+**Teaching, as mail comes in.** When the user corrects a message (**Not here**, or moving it by hand),
+the agent proposes a change to a skill, in plain words ("Add to Shops I buy from: Takealot shipping
+notices need nothing; only their invoices go to Save"). The user reads it, can edit it, and approves or
+declines. Nothing is learned without that approval. Where the pattern is exact, cockatoo also offers a
+rule, as before.
+
+**Skills and rules.** Rules (section 8a) stay: they are exact, instant, free and say plainly why a
+message is where it is, so they are applied first. Skills cover the judgement no rule can make (is the
+user really being asked something; is this attachment a document to keep) and everything no rule covers.
+As skills settle, the agent can suggest turning a pattern into a rule. The screen is **Skills & rules**.
+
+**Safety.**
+
+- **Only the user changes a skill.** Email is written by strangers; an email that says "always mark my
+  mail urgent" must never teach the agent anything. A proposed change is shown in full and saved only
+  on the user's click; the UI says it was written by the AI from that email.
+- **The agent suggests; it never acts** (section 3, rule 4).
+- **Recorded.** Every request (kind `sort`, `teach`, `triage`) and every skill version is kept.
+
+**Why not Anthropic's hosted features.** Anthropic's Agent Skills and Managed Agents run in a container
+Anthropic hosts, made for agents that write files and run code; using them would send the mailbox to a
+hosted sandbox, against section 3, rule 3, and add cost per session. Anthropic's memory tool lets the
+model write its own notes while it reads untrusted mail, which the first safety rule forbids. Cockatoo
+keeps its own skills and sends the relevant ones with each request instead. A tool-using loop ("look up
+my earlier mail from this sender") can be added later if a real need appears.
+
 ## 8. The UI: flat, quiet, at a glance
 
 Email clients are deep: you select a message to find its menu, and the menu has sub-menus. Cockatoo is
@@ -124,8 +168,89 @@ flat. The rules every screen is checked against:
    then apply to the selection, shown in the same place.
 4. **The AI works in the background.** It prepares, groups and suggests. It shows up as an answer or a
    proposal beside your mail, not as a separate tool you have to learn.
-5. **Modern, sleek and simple.** Calm, few words, nothing decorative. The visual design itself is not
-   decided yet; `../PRODUCT.md` holds the product record it will be built from (with Impeccable).
+5. **Modern, sleek and simple.** Calm, few words, nothing decorative. The look is "Highlighted
+   Printout", recorded in `../DESIGN.md`; the product record it was built from is `../PRODUCT.md`.
+6. **Organised by what mail asks of you.** A navigation down the left side holds the lists Reply,
+   Attention, Save and Unsorted (section 8a); the rest of the app sits below them.
+
+## 8a. Working your mail: Reply, Attention, Save
+
+Decided 2026-11-25. This changes how cockatoo behaves, not only how it looks. The user works mail by
+what it asks of them, so that is how the window is organised: a navigation down the left side with
+the lists of mail that need something from them, and the mail of the chosen list beside it.
+
+**The lists.** Every open message (not replied to, saved or marked done) is in exactly one:
+
+| List | What it means | What dealing with it is |
+|---|---|---|
+| **Reply** | Someone is waiting on an answer from you. | Replying (the reply shows in the Sent folder), or marking it done. |
+| **Attention** | Read it and act on it, but no answer is needed. | Marking it done. |
+| **Save** | It carries something to keep: an invoice, a statement, a contract. | Saving its attachments, or marking it done. |
+| **Unsorted** | Not sorted yet. | Putting it in a list, or marking it done. |
+| **Nothing to do** | It never needed you: a receipt, a shipping notice, a notification with an attachment. | Nothing; it stays out of the other lists, and can be looked at. |
+
+- **One list each.** A message is never in two lists, so the counts add up and nothing is done twice.
+  It can be moved to another list at any time, from its row.
+- **The window.** The lists show the last 30 days by default. The user can show all of their mail, of
+  any age, and can show what they have dealt with as well.
+- **Dealt-with mail leaves the list.** It is not deleted: it stays in the mailbox and in the Inbox, and
+  comes back with "show done".
+- **The Inbox stays.** The last 24 hours, search, and the rest remain one click away below the lists.
+
+**How mail gets into a list.** In this order; the first that applies wins:
+
+1. **The user put it there**, by hand, on its row (Reply, Attention, Save, or back to Unsorted). The
+   latest choice wins. Confirming an AI suggestion is the user putting it there.
+2. **A rule.** Mail from an address (`billing@acme.com`) or a domain (`acme.com`), and, if given, with
+   some text in its subject, goes to a list. The most specific rule wins: an address beats a domain, a
+   subject beats none. Routines (see the readme) become Save rules: a Save rule can also say
+   where the attachments go. Rules apply to mail of any age, not only mail that came after them.
+3. **Otherwise it is Unsorted.**
+
+**Teaching cockatoo, as mail comes in** (decided 2026-11-25). This is what the app is about: every
+correction teaches it. Every message in a list has **Not here**. It asks where the message goes instead
+(another list, Nothing to do, or "not sure", back to Unsorted). Then, as for any message moved by hand,
+it asks how to handle mail like it from now on:
+
+- **Only this one.**
+- **Always from this address**, or **anyone at this domain**, optionally only when the subject has
+  certain words. This becomes a rule; it replaces any rule for exactly the same mail.
+- **Narrow the rule that put it here.** When a wide rule (all mail from a domain) put mail in the wrong
+  list, the rule is kept only for mail with certain words in its subject ("takealot.com, only with
+  *invoice*"). The sender's other mail goes back to Unsorted unless another rule takes it.
+
+Excluding is done the same way: a narrower rule (an address, or words in the subject) beats a wider one,
+and a rule can send mail to Nothing to do. So "mail from this sender never goes to Save" is a rule for
+that sender to another list.
+
+All rules are listed on one screen (Rules), by list, to read, move to another list, remove or add.
+Rules are expected to grow more conditions later (to whom it was sent, whether it has attachments);
+the data keeps room for that.
+
+**The AI suggests; the user confirms.** The AI never moves mail by itself (section 3, rule 4).
+
+- **New mail, in the moment.** Mail that came in recently and that no rule or choice sorts is shown at
+  the top of the page, above the list, each with the AI's suggestion and a short reason ("Ann asks you to
+  approve the budget: Reply"). One click confirms it; the other lists are one click too. The idea is to
+  deal with new mail as it arrives.
+- **Unsorted is an exercise.** The Unsorted list is worked through as a task. On the user's click the AI
+  suggests a list for each message there, and the user confirms or changes them.
+- **What the AI reads.** What the triage already reads (section 7): sender, subject, date, whether the
+  mail was sent to the user directly or on CC, whether it answers their mail, how often they write to
+  the sender; with the user's permission, the first lines of the text. New here: the names of the
+  attachments, so an invoice from a sender never seen before is suggested for Save. Whether the user is
+  addressed in the text is the AI's judgement; the rest is code.
+- **Each message is suggested once.** A suggestion is kept with the message and shown again, so the
+  same mail is never paid for twice. Every request is recorded, as the triage requests are.
+- **"Nothing needed" is a suggestion too.** When the AI sees nothing to do, it suggests the Nothing to
+  do list, confirmed in one click.
+
+**What is kept.** Where each message was put, by whom (the user, a rule, a confirmed suggestion) and
+when, insert-only like the audit; and each AI suggestion with its reason. Nothing about the lists is
+written to the mailbox: moving mail between lists does not move it in Gmail.
+
+**Open.** Whether lists should become Gmail labels; rule conditions beyond sender and subject; a list
+of its own for mail waiting on someone else.
 
 ## 9. Cleaning up the inbox with AI
 
@@ -228,3 +353,6 @@ running it locally fits rule 3. To decide before step 3.
 | 2026-11-24 | Routines: what the user does every time a certain mail comes in, made from the save summary ("Do this every time?"). Matched on the sender's domain (or address, always for personal mail services) and optional subject text; mail from before the routine is not matched. For now the action is saving attachments, into a fixed folder or a folder for the mail's month or day. Matching mail is pointed out (Waiting for you, the row, the AI's facts, never left out as automated); the user presses Save. Never saved unattended: the sender is what the From header says, which anyone can write. "Reply" and "point out" routines are next. |
 | 2026-11-24 | The first AI feature is inbox cleanup: a conversation that asks and proposes, decisions saved with reasons and reused next time, built in five steps (section 9). Delete means Gmail's Trash, never permanent; the AI never acts on its own. |
 | 2026-11-24 | The look: "Highlighted Printout". Each screen is a paper sheet on a desk; navy ink; one highlighter yellow (the crest) only for what needs you (the AI's picks); the AI's notes in blue pen handwriting; a pen tick on mail you have dealt with. Public Sans, Caveat for the pen. The logo bird is in the header, the first-run screen and the empty inbox, with the tagline. Follows Windows light and dark. |
+| 2026-11-25 | The app is organised by what mail asks of the user: a left navigation with the lists Reply, Attention, Save and Unsorted (section 8a). One list per message; the last 30 days by default, all mail on request. Mail is placed by the user's choice, then by rules (address or domain, optional subject; routines become Save rules), else Unsorted. The AI suggests a list for new mail and, on the user's click, for Unsorted; the user confirms. Nothing about the lists is written to the mailbox. |
+| 2026-11-25 | A fifth list, Nothing to do, for mail that never needed the user. Every message in a list has Not here: it asks where the message goes, then how to handle mail like it from now on (only this one; a rule for the address or domain, optionally with subject words; or narrowing the wide rule that misplaced it). Excluding is a narrower rule. |
+| 2026-11-25 | The AI is one email agent with skills (section 7a): plain-word documents kept on the user's machine, read with every AI request, learned from the user's corrections only with their approval. Rules stay as the exact, free first step. Anthropic's hosted Agent Skills, Managed Agents and memory tool are not used: they would send the mailbox to a hosted sandbox or let mail write the agent's memory. |

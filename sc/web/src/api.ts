@@ -61,6 +61,75 @@ export interface MailMessage {
   seen: boolean
   handled?: Handled // what you have done about it; absent when nothing
   routine?: RoutineMatch // the routine for it, while it is not dealt with
+  sort?: SortInfo // the list it is in, where the lists are shown
+  suggestion?: Suggestion // the AI's idea of its list, when it has been asked
+}
+
+// The lists mail is sorted into, by what it asks of you (SCOPE.md, section 8a).
+export type ListName = "reply" | "attention" | "save" | "unsorted" | "ignore"
+
+// The list a message is in and how it got there.
+export interface SortInfo {
+  list: ListName
+  by?: "you" | "ai" | "rule" // absent while it is unsorted
+  ruleId?: number
+}
+
+// The AI's suggestion for a message: a list, or "done" for mail that needs nothing.
+export interface Suggestion {
+  list: Exclude<ListName, "unsorted"> | "done"
+  reason: string
+  skill?: string // the skill of yours it followed, by name
+  at: string
+}
+
+// What the email agent knows about how you work, in your own words (SCOPE.md, section 7a).
+export interface Skill {
+  id: number
+  name: string
+  applies: string // when it applies
+  instructions: string // what to do
+  madeBy: "you" | "agent" | "cockatoo" // who made this version: you, the agent (approved by you), or a starter
+  note?: string
+  updatedAt: string
+}
+
+export interface SkillInput {
+  id: number // 0 for a new skill
+  name: string
+  applies: string
+  instructions: string
+  note: string
+  fromAgent: boolean // the agent proposed it and you approved it
+}
+
+// What the agent proposes to remember from a correction. Nothing is saved until you approve it.
+export interface Proposal {
+  action: "edit" | "new" | "none"
+  skillId?: number
+  name?: string
+  applies?: string
+  instructions?: string // the whole skill after the change
+  before?: string // with an edit: the instructions before it
+  summary: string
+}
+
+// One list, with the counts for the navigation and the new mail no rule or choice has sorted yet.
+export interface ListsView {
+  list: ListName
+  all: boolean // all mail, of any age; otherwise the last 30 days
+  since?: string
+  counts: Record<ListName, number> // open mail in each list
+  done: number // mail dealt with in this list, shown only on request
+  messages: MailMessage[]
+  new: MailMessage[]
+}
+
+export interface SuggestResult {
+  suggestions: { key: MessageKey; suggestion: Suggestion }[]
+  sent: number // sent to the AI now; 0 when every message was asked about before
+  leftOut: number // over the limit of one request
+  textError?: string
 }
 
 // What you have done about a message, read from the audit and the Sent folder.
@@ -144,8 +213,8 @@ export interface Routine {
   id: number
   from: string // an address ("billing@acme.com") or a domain ("acme.com")
   subject?: string // text the subject contains; absent for any
-  action: "save"
-  folderId: number
+  action: Exclude<ListName, "unsorted"> // the list it puts mail in
+  folderId: number // Save rules only, and optional: 0 for none
   path: string // inside the save folder; with dated, where the dated folder goes
   dated?: "month" | "day" // a subfolder named for the mail's date
   createdAt: string
@@ -168,7 +237,8 @@ export interface RoutineMatch {
 export interface RoutineInput {
   from: string
   subject: string
-  folderId: number
+  list?: Exclude<ListName, "unsorted"> // absent is "save"
+  folderId: number // 0 for none
   path: string
   dated: "" | "month" | "day"
 }
@@ -447,6 +517,19 @@ export const api = {
   // Searches the whole copy of the inbox by sender and subject.
   searchInbox: (q: string, account: number | "all") =>
     request<SearchResult>(`/api/inbox/search?q=${encodeURIComponent(q)}&account=${account}`),
+  lists: (list: ListName, o: { all: boolean; account: number | "all"; done: boolean }) =>
+    request<ListsView>(
+      `/api/lists?list=${list}&account=${o.account}${o.all ? "&all=1" : ""}${o.done ? "&done=1" : ""}`,
+    ),
+  sortMessages: (messages: MessageKey[], list: ListName, confirmed = false) =>
+    request<void>("/api/messages/sort", { method: "POST", body: JSON.stringify({ messages, list, confirmed }) }),
+  suggest: (messages: MessageKey[], withText: boolean) =>
+    request<SuggestResult>("/api/suggest", { method: "POST", body: JSON.stringify({ messages, withText }) }),
+  skills: () => request<Skill[]>("/api/skills"),
+  saveSkill: (k: SkillInput) => request<Skill>("/api/skills", { method: "POST", body: JSON.stringify(k) }),
+  removeSkill: (id: number) => request<void>(`/api/skills/${id}`, { method: "DELETE" }),
+  teach: (t: { message: MessageKey; from: ListName; to: ListName; ruleId: number; withText: boolean }) =>
+    request<Proposal>("/api/teach", { method: "POST", body: JSON.stringify(t) }),
   routines: () => request<Routine[]>("/api/routines"),
   addRoutine: (r: RoutineInput) => request<Routine>("/api/routines", { method: "POST", body: JSON.stringify(r) }),
   removeRoutine: (id: number) => request<void>(`/api/routines/${id}`, { method: "DELETE" }),

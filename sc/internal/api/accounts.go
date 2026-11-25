@@ -99,6 +99,55 @@ func accountRoutes(mux *http.ServeMux, accounts *account.Service) {
 		writeJSON(w, http.StatusOK, res)
 	})
 
+	// One list of mail (SCOPE.md, section 8a), with the counts for the navigation and the new mail
+	// not sorted yet: ?list=reply|attention|save|unsorted&all=1 (any age; else 30 days)
+	// &account=id (optional)&done=1 (with the mail dealt with).
+	mux.HandleFunc("GET /api/lists", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		var account int64
+		if a := q.Get("account"); a != "" && a != "all" {
+			id, err := strconv.ParseInt(a, 10, 64)
+			if err != nil || id <= 0 {
+				writeError(w, http.StatusBadRequest, fmt.Errorf("account must be an account id or all, not %q", a))
+				return
+			}
+			account = id
+		}
+		list := q.Get("list")
+		if list == "" {
+			list = store.ListUnsorted
+		}
+		view, err := accounts.Lists(r.Context(), list, q.Get("all") == "1", account, q.Get("done") == "1")
+		if err != nil {
+			writeError(w, statusFor(err), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	})
+
+	// Puts messages in a list: {messages, list, confirmed}. confirmed says the user took the AI's
+	// suggestion. Changes nothing in the mailbox.
+	mux.HandleFunc("POST /api/messages/sort", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages  []store.MessageKey `json:"messages"`
+			List      string             `json:"list"`
+			Confirmed bool               `json:"confirmed"`
+		}
+		if err := readJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		by := store.ByYou
+		if req.Confirmed {
+			by = store.ByAI
+		}
+		if err := accounts.SortMessages(r.Context(), req.Messages, req.List, by); err != nil {
+			writeError(w, statusFor(err), err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// Searches the copy of the whole inbox by sender and subject: ?q=words&account=id (optional).
 	mux.HandleFunc("GET /api/inbox/search", func(w http.ResponseWriter, r *http.Request) {
 		var account int64

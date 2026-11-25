@@ -24,7 +24,10 @@ func Handler(st *store.Store, accounts *account.Service, assistant *ai.Service, 
 	mux := http.NewServeMux()
 	accountRoutes(mux, accounts)
 	folderRoutes(mux, accounts)
-	triageRoutes(mux, triage.New(st, assistant, accounts))
+	sorter := triage.New(st, assistant, accounts)
+	triageRoutes(mux, sorter)
+	suggestRoutes(mux, sorter)
+	teachRoutes(mux, sorter)
 	googleRoutes(mux, accounts)
 	aiRoutes(mux, assistant)
 
